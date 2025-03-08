@@ -1,0 +1,136 @@
+server:
+  port: 8081
+  # Enable compression for better performance
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/html,text/plain
+    min-response-size: 2KB
+  # Improve connection handling
+  tomcat:
+    max-threads: 200
+    max-connections: 10000
+    accept-count: 100
+    connection-timeout: 5000
+
+spring:
+  application:
+    name: SavorAI-UserService
+  datasource:
+    url: jdbc:mysql://localhost:3306/savorAI_user?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    # Connection pool settings
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      idle-timeout: 30000
+      connection-timeout: 30000
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+        # Performance optimizations
+        jdbc.batch_size: 25
+        order_inserts: true
+        order_updates: true
+        jdbc.batch_versioned_data: true
+    open-in-view: false
+  # Email Configuration
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME:appsavorai@gmail.com}
+    password: ${MAIL_PASSWORD:pxdw zfyj qchv xbwp}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          ssl:
+            trust: smtp.gmail.com
+          timeout: 5000
+          connectiontimeout: 5000
+  # Thymeleaf Configuration
+  thymeleaf:
+    check-template-location: true
+    enabled: true
+    prefix: classpath:/templates/
+    suffix: .html
+    mode: HTML
+    encoding: UTF-8
+    cache: false
+  # Security settings
+  security:
+    user:
+      name: ${ACTUATOR_USERNAME:actuator}
+      password: ${ACTUATOR_PASSWORD:actuator}
+      roles: ACTUATOR_ADMIN
+
+# Application URL
+app:
+  url: http://localhost:8081
+  frontend:
+    url: ${FRONTEND_URL:http://localhost:5173}
+    routes:
+      login: /login
+      register: /register
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    dev.idachev.userservice: DEBUG
+    org.springframework.security: INFO
+    org.thymeleaf: DEBUG
+    org.springframework.web: DEBUG
+  file:
+    name: logs/user-service.log
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 7
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when_authorized
+      roles: ACTUATOR_ADMIN
+    metrics:
+      enabled: true
+  health:
+    mail:
+      enabled: false
+
+jwt:
+  secret: ${JWT_SECRET:cHxkdyB6ZnlqIHFjaHYgeGJ3cABwW5zaGdqaGQK2j1mn2j3bas9}
+  expiration: 86400000 # 24 hours
+  refresh-expiration: 604800000 # 7 days
+
+security:
+  password:
+    encoder:
+      strength: 12
+  allowed-public-apis:
+    - /api/v1/user/register
+    - /api/v1/user/login
+    - /api/v1/user/verify/**
+    - /api/v1/user/reset-password-request
+    - /api/v1/user/reset-password
+    - /actuator/health
+    - /actuator/info
+
+cors:
+  allowed-origins: http://localhost:5173
+  allowed-methods: GET,POST,PUT,DELETE,OPTIONS
+  allowed-headers: Authorization,Content-Type
+  allow-credentials: true
+  max-age: 3600 
