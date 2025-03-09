@@ -2,6 +2,7 @@ package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.config.JwtConfig;
 import dev.idachev.userservice.exception.DuplicateUserException;
+import dev.idachev.userservice.mapper.DtoMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.web.dto.*;
@@ -75,15 +76,7 @@ public class UserService {
         emailService.sendVerificationEmail(savedUser.getEmail(), savedUser.getUsername(), verificationToken);
 
         // For security reasons, don't generate a token for unverified users
-        // Instead return a response indicating verification is needed
-        return AuthResponse.builder()
-                .token("")  // Empty token since user isn't verified yet
-                .username(savedUser.getUsername())
-                .email(savedUser.getEmail())
-                .verified(false)
-                .verificationPending(true)
-                .lastLogin(null)
-                .build();
+        return DtoMapper.mapToAuthResponse(savedUser, "");
     }
 
     /**
@@ -120,14 +113,7 @@ public class UserService {
             log.info("User logged in: {}", user.getEmail());
 
             // Return response
-            return AuthResponse.builder()
-                    .token(token)
-                    .username(user.getUsername())
-                    .email(user.getEmail())
-                    .verified(user.isEnabled())
-                    .verificationPending(user.isVerificationPending())
-                    .lastLogin(user.getLastLogin())
-                    .build();
+            return DtoMapper.mapToAuthResponse(user, token);
         } catch (Exception e) {
             log.error("Login failed for user {}: {}", request.getEmail(), e.getMessage());
             throw e;
@@ -156,22 +142,17 @@ public class UserService {
     public VerificationResponse verifyEmailAndGetResponse(String token) {
         try {
             boolean verified = verifyEmail(token);
+            User user = null;
+            
+            // Try to find the user by token if verification was successful
             if (verified) {
-                return VerificationResponse.builder()
-                        .success(true)
-                        .message("Email verified successfully")
-                        .build();
+                user = userRepository.findByVerificationToken(token).orElse(null);
+                return DtoMapper.mapToVerificationResponse(user, true, "Email verified successfully");
             } else {
-                return VerificationResponse.builder()
-                        .success(false)
-                        .message("Verification failed")
-                        .build();
+                return DtoMapper.mapToVerificationResponse(null, false, "Verification failed");
             }
         } catch (Exception e) {
-            return VerificationResponse.builder()
-                    .success(false)
-                    .message("Invalid verification token")
-                    .build();
+            return DtoMapper.mapToVerificationResponse(null, false, "Invalid verification token");
         }
     }
 
@@ -184,7 +165,7 @@ public class UserService {
     }
 
     /**
-     * Checks a user's verification status and provides a token if the user is verified
+     * Checks if a user's email is verified
      * 
      * @param email The user's email address
      * @return AuthResponse with verification status and token if verified
@@ -194,19 +175,11 @@ public class UserService {
                 .orElseThrow(() -> new RuntimeException("User not found with email: " + email));
         
         boolean isVerified = user.isEnabled();
-        boolean isPending = user.isVerificationPending();
         
         // Only generate a token if the user is verified
         String token = isVerified ? jwtConfig.generateToken(user) : "";
         
-        return AuthResponse.builder()
-                .token(token)
-                .username(user.getUsername())
-                .email(user.getEmail())
-                .verified(isVerified)
-                .verificationPending(isPending)
-                .lastLogin(user.getLastLogin())
-                .build();
+        return DtoMapper.mapToAuthResponse(user, token);
     }
 
     /**
@@ -216,13 +189,7 @@ public class UserService {
      */
     public UserResponse getCurrentUserInfo() {
         User user = getCurrentUser();
-        return UserResponse.builder()
-                .username(user.getUsername())
-                .email(user.getEmail())
-                .verified(user.isEnabled())
-                .verificationPending(user.isVerificationPending())
-                .lastLogin(user.getLastLogin())
-                .build();
+        return DtoMapper.mapToUserResponse(user);
     }
     
     /**
@@ -232,9 +199,6 @@ public class UserService {
      */
     public MessageResponse logout() {
         SecurityContextHolder.clearContext();
-        return MessageResponse.builder()
-                .success(true)
-                .message("Logged out successfully")
-                .build();
+        return DtoMapper.mapToMessageResponse(true, "Logged out successfully");
     }
 } 
