@@ -3,14 +3,12 @@ package dev.idachev.userservice;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-/**
- * User Service Application.
- * Provides user registration, login, profile management, and JWT token management.
- */
+
+//User Service Application
 @SpringBootApplication
-public class UserServiceApplication {
+public class Application {
 
     public static void main(String[] args) {
-        SpringApplication.run(UserServiceApplication.class, args);
+        SpringApplication.run(Application.class, args);
     }
 } 

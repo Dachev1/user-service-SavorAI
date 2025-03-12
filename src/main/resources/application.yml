@@ -1,27 +1,34 @@
 server:
   port: 8081
+  servlet:
+    context-path: /
 
 spring:
   application:
-    name: SavorAI-UserService
+    name: user-service
+  
+  # Database configuration
   datasource:
-    url: jdbc:mysql://localhost:3306/savorAI_user?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD:root}
+    url: jdbc:mysql://localhost:3306/savorAI_user?createDatabaseIfNotExist=true
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  
+  # JPA configuration  
   jpa:
     hibernate:
       ddl-auto: update
     properties:
       hibernate:
+        format_sql: true
         dialect: org.hibernate.dialect.MySQLDialect
-    open-in-view: false
-  # Email Configuration
+  
+  # Email service configuration
   mail:
     host: smtp.gmail.com
     port: 587
-    username: ${MAIL_USERNAME:appsavorai@gmail.com}
-    password: ${MAIL_PASSWORD:pxdw zfyj qchv xbwp}
+    username: ${MAIL_USERNAME}
+    password: ${MAIL_PASSWORD}
     properties:
       mail:
         smtp:
@@ -29,32 +36,31 @@ spring:
           starttls:
             enable: true
 
-# Application URL
+# Frontend application configuration
 app:
-  url: http://localhost:8081
   frontend:
-    url: ${FRONTEND_URL:http://localhost:5173}
+    url: http://localhost:5173
+    routes:
+      login: /login
+      register: /register
 
-# Basic logging
-logging:
-  level:
-    root: INFO
-    dev.idachev.userservice: DEBUG
-
+# Security configuration
 jwt:
-  secret: ${JWT_SECRET:cHxkdyB6ZnlqIHFjaHYgeGJ3cABwW5zaGdqaGQK2j1mn2j3bas9}
+  secret: ${JWT_SECRET}
   expiration: 86400000 # 24 hours
 
-security:
-  allowed-public-apis:
-    - /api/v1/user/register
-    - /api/v1/user/login
-    - /api/v1/user/verify/**
-    - /api/v1/user/reset-password-request
-    - /api/v1/user/reset-password
-
+# CORS configuration
 cors:
   allowed-origins: http://localhost:5173
   allowed-methods: GET,POST,PUT,DELETE,OPTIONS
   allowed-headers: Authorization,Content-Type
-  allow-credentials: true 
+  allow-credentials: true
+
+# Logging configuration
+logging:
+  level:
+    root: INFO
+    dev.idachev.userservice: DEBUG
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    org.hibernate.SQL: DEBUG 

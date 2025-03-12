@@ -7,7 +7,6 @@ import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.UnsupportedJwtException;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -30,7 +29,6 @@ import java.util.UUID;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class JwtConfig {
 
     @Value("${jwt.secret}")
@@ -39,20 +37,16 @@ public class JwtConfig {
     @Value("${jwt.expiration}")
     private Long expiration;
 
-    @Value("${jwt.refresh-expiration:604800000}") // Default 7 days
-    private Long refreshExpiration;
-
     private Key signingKey;
 
-    /**
-     * Initialize the signing key on startup
-     */
+
     @PostConstruct
     public void init() {
-
-        this.signingKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-
-        log.info("JWT signing key initialized successfully");
+        // Use the HMAC-SHA384 algorithm to sign tokens (matching the recipe-service)
+        byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
+        this.signingKey = Keys.hmacShaKeyFor(secretBytes);
+        
+        log.info("JWT signing key initialized successfully with algorithm: {}", "HS384");
     }
 
     /**
@@ -79,16 +73,6 @@ public class JwtConfig {
     }
 
     /**
-     * Generates a refresh token for the provided user details
-     *
-     * @param userDetails User details from Spring Security
-     * @return JWT refresh token string
-     */
-    public String generateRefreshToken(UserDetails userDetails) {
-        return buildToken(new HashMap<>(), userDetails, refreshExpiration);
-    }
-
-    /**
      * Common method to build a token with specific expiration
      *
      * @param extraClaims Additional claims to include in the token
@@ -97,31 +81,23 @@ public class JwtConfig {
      * @return JWT token string
      */
     private String buildToken(Map<String, Object> extraClaims, UserDetails userDetails, long expiration) {
-        long now = System.currentTimeMillis();
-        Date issuedAt = new Date(now);
-        Date expiryDate = new Date(now + expiration);
-        
-        // Create claims map with standard and extra claims
+
         Map<String, Object> claims = new HashMap<>(extraClaims);
         claims.put("authorities", userDetails.getAuthorities());
         
-        // Add user details for more specific tokens
-        if (userDetails instanceof User) {
-            User user = (User) userDetails;
-            claims.put("userId", user.getId());
+        // Add user-specific claims
+        if (userDetails instanceof User user) {
+            claims.put("userId", user.getId().toString());
             claims.put("email", user.getEmail());
         }
-        
-        // Generate a unique JWT ID
-        String jwtId = UUID.randomUUID().toString();
         
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(userDetails.getUsername())
-                .setIssuedAt(issuedAt)
-                .setExpiration(expiryDate)
-                .setId(jwtId)  // Add a unique ID to each token
-                .signWith(signingKey)
+                .setIssuedAt(new Date(System.currentTimeMillis()))
+                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                .setId(UUID.randomUUID().toString())
+                .signWith(signingKey, io.jsonwebtoken.SignatureAlgorithm.HS384) // Explicitly use HS384
                 .compact();
     }
 
@@ -132,6 +108,7 @@ public class JwtConfig {
      * @return Username string
      */
     public String extractUsername(String token) {
+
         return extractClaim(token, Claims::getSubject);
     }
 
@@ -142,6 +119,7 @@ public class JwtConfig {
      * @return Expiration date
      */
     public Date extractExpiration(String token) {
+
         return extractClaim(token, Claims::getExpiration);
     }
 
@@ -153,6 +131,7 @@ public class JwtConfig {
      * @return The extracted claim value
      */
     public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
+
         final Claims claims = extractAllClaims(token);
         return claimsResolver.apply(claims);
     }
@@ -165,25 +144,33 @@ public class JwtConfig {
      * @throws io.jsonwebtoken.JwtException if the token is invalid
      */
     private Claims extractAllClaims(String token) {
+
         try {
+
             return Jwts.parserBuilder()
                     .setSigningKey(signingKey)
                     .build()
                     .parseClaimsJws(token)
                     .getBody();
+
         } catch (ExpiredJwtException e) {
+
             log.warn("JWT token expired: {}", e.getMessage());
             throw e;
         } catch (MalformedJwtException e) {
+
             log.warn("Invalid JWT signature: {}", e.getMessage());
             throw e;
         } catch (UnsupportedJwtException e) {
+
             log.warn("JWT token is unsupported: {}", e.getMessage());
             throw e;
         } catch (IllegalArgumentException e) {
+
             log.warn("JWT claims string is empty: {}", e.getMessage());
             throw e;
         } catch (Exception e) {
+
             log.error("Error parsing JWT token: {}", e.getMessage());
             throw e;
         }
@@ -196,9 +183,12 @@ public class JwtConfig {
      * @return true if expired, false otherwise
      */
     public Boolean isTokenExpired(String token) {
+
         try {
+
             return extractExpiration(token).before(new Date());
         } catch (ExpiredJwtException e) {
+
             return true;
         }
     }
@@ -211,10 +201,13 @@ public class JwtConfig {
      * @return true if valid, false otherwise
      */
     public Boolean validateToken(String token, UserDetails userDetails) {
+
         try {
+
             final String username = extractUsername(token);
             return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
         } catch (Exception e) {
+
             log.warn("Token validation failed: {}", e.getMessage());
             return false;
         }

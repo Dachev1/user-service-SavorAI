@@ -34,8 +34,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             "/api/v1/user/login", 
             "/api/v1/user/register", 
             "/api/v1/user/verify",
+            "/api/v1/user/verify-email",
             "/api/v1/user/verification-status",
-            "/test-template",
             "/css/", "/js/", "/images/", "/webjars/",
             "/actuator/", "/favicon.ico"
     );
@@ -53,6 +53,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         return path.startsWith("/api/v1/user/verify/") || 
+               path.startsWith("/api/v1/user/verify-email/") ||
                PUBLIC_PATHS.stream().anyMatch(path::startsWith);
     }
 

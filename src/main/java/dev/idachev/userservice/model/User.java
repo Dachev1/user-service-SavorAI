@@ -9,7 +9,12 @@ import org.springframework.security.core.userdetails.UserDetails;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.UUID;
 
+/**
+ * User entity representing application users.
+ * Implements UserDetails for Spring Security integration.
+ */
 @Entity
 @Table
 @Getter
@@ -20,8 +25,8 @@ import java.util.Collections;
 public class User implements UserDetails {
 
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    @GeneratedValue(strategy = GenerationType.UUID)
+    private UUID id;
 
     @Column(unique = true, nullable = false, length = 50)
     private String username;
@@ -36,17 +41,18 @@ public class User implements UserDetails {
 
     @Column
     private String verificationToken;
-    
+
     @Column
-    @Builder.Default
     private LocalDateTime createdOn = LocalDateTime.now();
     
     @Column
-    @Builder.Default
     private LocalDateTime updatedOn = LocalDateTime.now();
     
     @Column
     private LocalDateTime lastLogin;
+
+    @Column
+    private boolean loggedIn = false;
 
     @Override
     public String getUsername() {
@@ -78,6 +84,11 @@ public class User implements UserDetails {
         return true;
     }
 
+    @PreUpdate
+    protected void onUpdate() {
+        updatedOn = LocalDateTime.now();
+    }
+
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
         this.updatedOn = LocalDateTime.now();
@@ -93,11 +104,6 @@ public class User implements UserDetails {
         this.updatedOn = LocalDateTime.now();
     }
 
-    @Override
-    public Collection<? extends GrantedAuthority> getAuthorities() {
-        return Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"));
-    }
-
     public void setPassword(String password) {
         this.password = password;
         this.updatedOn = LocalDateTime.now();
@@ -107,25 +113,24 @@ public class User implements UserDetails {
         this.verificationToken = verificationToken;
         this.updatedOn = LocalDateTime.now();
     }
-    
-    /**
-     * Updates the last login timestamp to the current time
-     */
-    public void updateLastLogin() {
-        this.lastLogin = LocalDateTime.now();
-    }
-    
-    /**
-     * Checks if this user account has a pending email verification
-     * @return true if verification is pending (token is not null), false otherwise
-     */
-    public boolean isVerificationPending() {
-        return verificationToken != null;
+
+    public void setLoggedIn(boolean loggedIn) {
+        this.loggedIn = loggedIn;
+        this.updatedOn = LocalDateTime.now();
     }
 
-    @PreUpdate
-    protected void onUpdate() {
+    public void updateLastLogin() {
+        this.lastLogin = LocalDateTime.now();
         this.updatedOn = LocalDateTime.now();
+    }
+
+    public boolean isVerificationPending() {
+        return verificationToken != null && !verificationToken.isEmpty();
+    }
+
+    @Override
+    public Collection<? extends GrantedAuthority> getAuthorities() {
+        return Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"));
     }
     
     @Override
@@ -136,6 +141,7 @@ public class User implements UserDetails {
                 ", email='" + email + '\'' +
                 ", enabled=" + enabled +
                 ", verificationPending=" + isVerificationPending() +
+                ", loggedIn=" + loggedIn +
                 ", lastLogin=" + lastLogin +
                 '}';
     }

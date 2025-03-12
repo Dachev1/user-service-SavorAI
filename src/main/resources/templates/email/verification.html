@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>Verify Your SavorAI Account</title>
+    <title>Welcome to SavorAI!</title>
     <style>
         * {
             margin: 0;
@@ -99,6 +99,27 @@
         .logo span {
             color: #FFD700;
         }
+        
+        .features {
+            text-align: left;
+            margin: 30px 0;
+            padding: 0 20px;
+        }
+        
+        .features li {
+            margin-bottom: 10px;
+            list-style-type: none;
+            position: relative;
+            padding-left: 25px;
+        }
+        
+        .features li:before {
+            content: "✓";
+            color: #6B46C1;
+            position: absolute;
+            left: 0;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
@@ -111,26 +132,34 @@
         <div class="content">
             <div class="icon">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#6B46C1">
-                    <path d="M18 6h-2c0-2.21-1.79-4-4-4S8 3.79 8 6H6c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-8 4c0 .55-.45 1-1 1s-1-.45-1-1V8h2v2zm4 0c0 .55-.45 1-1 1s-1-.45-1-1V8h2v2z"></path>
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"></path>
                 </svg>
             </div>
             
-            <h2>Hey <span th:text="${username}">there</span>!</h2>
+            <h2>Congratulations, <span th:text="${username}">there</span>!</h2>
             
-            <p>Thanks for registering with SavorAI! You're about to discover a world of personalized culinary experiences.</p>
+            <p>Your email has been verified and your SavorAI account is now active. We're excited to have you join our community!</p>
             
-            <p>Please verify your email to get started:</p>
+            <p>With SavorAI, you can:</p>
             
-            <a th:href="${verificationUrl}" class="button">Verify Email</a>
+            <ul class="features">
+                <li>Discover personalized recipe recommendations</li>
+                <li>Create and share your own culinary creations</li>
+                <li>Connect with other food enthusiasts</li>
+                <li>Save your favorite recipes for easy access</li>
+            </ul>
+            
+            <p>Ready to start your culinary journey?</p>
+            
+            <a th:href="${loginUrl}" class="button">Log In Now</a>
             
             <div class="note">
-                <p>If the button doesn't work, copy and paste this link into your browser:</p>
-                <a th:href="${verificationUrl}" th:text="${verificationUrl}"></a>
+                <p>If you have any questions or need assistance, please don't hesitate to contact our support team.</p>
             </div>
         </div>
         
         <div class="footer">
-            <p>&copy; <span th:text="${#dates.format(#dates.createNow(), 'yyyy')}">2023</span> SavorAI. All rights reserved.</p>
+            <p>&copy; <span th:text="${#dates.format(#dates.createNow(), 'yyyy')}">2023</span> <span th:text="${appName}">SavorAI</span>. All rights reserved.</p>
         </div>
     </div>
 </body>

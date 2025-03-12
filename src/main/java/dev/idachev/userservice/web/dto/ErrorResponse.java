@@ -5,17 +5,17 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.util.Map;
+import java.time.LocalDateTime;
 
 /**
- * Data transfer object for validation error responses
+ * Standard error response DTO for all API errors
  */
 @Getter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ValidationErrorResponse {
-    private boolean success;
+public class ErrorResponse {
+    private Integer status;
     private String message;
-    private Map<String, String> errors;
+    private LocalDateTime timestamp;
 } 

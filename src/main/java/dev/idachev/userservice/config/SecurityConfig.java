@@ -43,6 +43,7 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+
         return http
             .csrf(AbstractHttpConfigurer::disable)
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -52,9 +53,9 @@ public class SecurityConfig {
                     "/api/v1/user/register", 
                     "/api/v1/user/login", 
                     "/api/v1/user/verify/**", 
+                    "/api/v1/user/verify-email/**",
                     "/api/v1/user/verification-status",
-                    "/test-template",
-                    "/css/**", "/js/**", "/images/**", "/webjars/**", "/favicon.ico",
+                    "/css/**", "/js/**", "/images/**", "/webjars/**",
                     "/actuator/health", "/actuator/info"
                 ).permitAll()
                 .anyRequest().authenticated()
@@ -67,6 +68,7 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
+
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of(allowedOrigins));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
@@ -80,19 +82,23 @@ public class SecurityConfig {
 
     @Bean
     public AuthenticationProvider authenticationProvider() {
+
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
         authProvider.setUserDetailsService(userDetailsService);
         authProvider.setPasswordEncoder(passwordEncoder());
+
         return authProvider;
     }
 
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+
         return config.getAuthenticationManager();
     }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
+
         return new BCryptPasswordEncoder();
     }
 } 

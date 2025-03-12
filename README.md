@@ -1,67 +1,79 @@
 # SavorAI User Service
 
-## Environment Variables Setup
+User authentication and account management service for the SavorAI platform.
 
-This application requires certain environment variables to be set for proper operation. Sensitive data such as passwords and secrets should never be committed to the repository.
+## Features
 
-### Setup Instructions
+- User registration and authentication
+- Email verification
+- JWT-based authentication
+- Secure password handling
+- Account management
 
-1. Copy the `.env.example` file to a new file named `.env`:
-   ```
-   cp .env.example .env
-   ```
+## Technology Stack
 
-2. Edit the `.env` file and fill in your actual values:
-   ```
-   # Database Configuration
-   DB_USERNAME=actual_username
-   DB_PASSWORD=actual_password
-   
-   # Email Configuration
-   MAIL_USERNAME=your_actual_email@gmail.com
-   MAIL_PASSWORD=your_actual_app_password
-   
-   # Security Configuration
-   ACTUATOR_PASSWORD=your_actual_secure_password
-   
-   # JWT Configuration
-   JWT_SECRET=your_actual_very_long_and_secure_random_string
-   ```
+- Java 17
+- Spring Boot 3.2.x
+- Spring Security
+- Spring Data JPA
+- MySQL Database
+- Thymeleaf (for email templates)
 
-3. Make sure the `.env` file is never committed to your repository (it should be listed in `.gitignore`).
+## Setup and Configuration
 
-### Running the Application with Environment Variables
+### Prerequisites
 
-#### Using Maven:
-```bash
-# Linux/macOS
-source .env && mvn spring-boot:run
+- JDK 17 or later
+- MySQL 8.0 or later
+- Gradle 8.x
 
-# Windows (PowerShell)
-Get-Content .env | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' -and -not $_.StartsWith('#') } | ForEach-Object { $var = $_.Split('=', 2); [Environment]::SetEnvironmentVariable($var[0], $var[1], 'Process') }
-mvn spring-boot:run
+### Environment Variables
+
+This application uses environment variables for sensitive configuration. Before running, make sure to set the following environment variables:
+
+```
+# Database Configuration
+DB_USERNAME=your_database_username
+DB_PASSWORD=your_database_password
+
+# Email Service Configuration
+MAIL_USERNAME=your_email_username
+MAIL_PASSWORD=your_email_password
+
+# JWT Configuration
+JWT_SECRET=your_jwt_secret_key
 ```
 
-#### Using Docker:
+You can either set these in your environment or create a `.env` file in the root directory (this file is gitignored and should never be committed to version control).
+
+### Running the Application
+
+Using Gradle Wrapper:
+
 ```bash
-docker run --env-file .env -p 8081:8081 savorai/user-service
+# For Windows
+./gradlew.bat bootRun
+
+# For Unix/Linux/MacOS
+./gradlew bootRun
 ```
 
-## Alternative: Using Spring Profiles
+Note for Windows PowerShell users: Use semicolons instead of && for command chaining:
+```powershell
+cd user-service; ./gradlew.bat bootRun
+```
 
-You can also use Spring profiles for different environments:
+The application will start on port 8081 by default (configurable in application.yml).
 
-1. Create specific application-{profile}.yml files (e.g., application-dev.yml, application-prod.yml)
-2. Keep sensitive data out of these files
-3. Set environment variables in each environment
-4. Run the application with the specific profile:
-   ```
-   java -jar user-service.jar --spring.profiles.active=prod
-   ```
+## API Endpoints
 
-## Security Best Practices
+- `POST /api/v1/user/register` - Register a new user
+- `POST /api/v1/user/login` - Authenticate a user
+- `GET /api/v1/user/verify-email/{token}` - Verify user email
+- More endpoints documented in the code
 
-- Never commit sensitive data to your repository
-- Use different secrets in different environments
-- Regularly rotate passwords and secrets
-- Consider using a secrets management solution like HashiCorp Vault, AWS Secrets Manager, or Spring Cloud Config Server for production 
+## Development Notes
+
+- The main application configuration is in `src/main/resources/application.yml`
+- Environment-specific configurations should use profile-specific YML files (e.g. `application-dev.yml`)
+- Email templates are located in `src/main/resources/templates/email/` 
