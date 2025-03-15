@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Email Verification - SavorAI</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            background: #fff;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .header,
+        .footer {
+            text-align: center;
+        }
+        .header {
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 20px;
+        }
+        .content {
+            margin-bottom: 30px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #6B46C1;
+            color: #fff !important;
+            padding: 12px 24px;
+            text-decoration: none;
+            border-radius: 4px;
+            font-weight: bold;
+            margin-top: 20px;
+        }
+        .logo {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .logo span {
+            color: #FFD700;
+        }
+        .footer {
+            font-size: 12px;
+            color: #777;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header class="header">
+        <div class="logo">Savor<span>AI</span></div>
+        <h1>Verify Your Email Address</h1>
+    </header>
+
+    <section class="content">
+        <p>Hello <span th:text="${username}">User</span>,</p>
+        <p>Thank you for signing up with SavorAI! Please click the button below to verify your email address:</p>
+        <p style="text-align: center;">
+            <a th:href="${verificationUrl}" class="button">Verify My Email</a>
+        </p>
+        <p>If you didn't create an account, you can ignore this email.</p>
+    </section>
+
+    <footer class="footer">
+        <p>
+            &copy; <span th:text="${#dates.format(#dates.createNow(), 'yyyy')}"></span>
+            <span th:text="${appName}">SavorAI</span>. All rights reserved.
+        </p>
+    </footer>
+</div>
+</body>
+</html>
