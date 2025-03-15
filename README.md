@@ -1,79 +1,56 @@
-# SavorAI User Service
+# SavorAI Recipe Service
 
-User authentication and account management service for the SavorAI platform.
+## Overview
+Backend service for recipe generation and management using OpenAI integration. Allows users to generate custom recipes from ingredients, store favorite recipes, and manage their personal recipe collection.
 
 ## Features
+- AI-powered recipe generation from ingredients
+- Recipe image generation using AI
+- User recipe management (create, read, update, delete)
+- Favorite recipe functionality
+- Recipe search and filtering
 
-- User registration and authentication
-- Email verification
-- JWT-based authentication
-- Secure password handling
-- Account management
-
-## Technology Stack
-
+## Tech Stack
 - Java 17
-- Spring Boot 3.2.x
-- Spring Security
-- Spring Data JPA
-- MySQL Database
-- Thymeleaf (for email templates)
-
-## Setup and Configuration
-
-### Prerequisites
-
-- JDK 17 or later
-- MySQL 8.0 or later
-- Gradle 8.x
-
-### Environment Variables
-
-This application uses environment variables for sensitive configuration. Before running, make sure to set the following environment variables:
-
-```
-# Database Configuration
-DB_USERNAME=your_database_username
-DB_PASSWORD=your_database_password
-
-# Email Service Configuration
-MAIL_USERNAME=your_email_username
-MAIL_PASSWORD=your_email_password
-
-# JWT Configuration
-JWT_SECRET=your_jwt_secret_key
-```
-
-You can either set these in your environment or create a `.env` file in the root directory (this file is gitignored and should never be committed to version control).
-
-### Running the Application
-
-Using Gradle Wrapper:
-
-```bash
-# For Windows
-./gradlew.bat bootRun
-
-# For Unix/Linux/MacOS
-./gradlew bootRun
-```
-
-Note for Windows PowerShell users: Use semicolons instead of && for command chaining:
-```powershell
-cd user-service; ./gradlew.bat bootRun
-```
-
-The application will start on port 8081 by default (configurable in application.yml).
+- Spring Boot 3.2.5
+- Spring AI for OpenAI integration
+- Spring Security with JWT authentication
+- Spring Data JPA for database access
+- MySQL database
+- Cloudinary for image storage
+- Gradle build system
 
 ## API Endpoints
+The service exposes REST APIs with the following main endpoints:
 
-- `POST /api/v1/user/register` - Register a new user
-- `POST /api/v1/user/login` - Authenticate a user
-- `GET /api/v1/user/verify-email/{token}` - Verify user email
-- More endpoints documented in the code
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/recipes` | GET | Get all recipes with pagination |
+| `/api/v1/recipes/{id}` | GET | Get recipe by ID |
+| `/api/v1/recipes` | POST | Create a new recipe |
+| `/api/v1/recipes/{id}` | PUT | Update a recipe |
+| `/api/v1/recipes/{id}` | DELETE | Delete a recipe |
+| `/api/v1/recipes/generate` | POST | Generate a recipe from ingredients |
+| `/api/v1/recipes/favorites` | GET | Get user's favorite recipes |
+| `/api/v1/recipes/favorites/{recipeId}` | POST | Add recipe to favorites |
+| `/api/v1/recipes/favorites/{recipeId}` | DELETE | Remove recipe from favorites |
 
-## Development Notes
+## Getting Started
+1. Configure environment variables in `application.yml`:
+   - Database connection
+   - OpenAI API key
+   - Cloudinary credentials
+   - JWT secret
 
-- The main application configuration is in `src/main/resources/application.yml`
-- Environment-specific configurations should use profile-specific YML files (e.g. `application-dev.yml`)
-- Email templates are located in `src/main/resources/templates/email/` 
+2. Run the service:
+   ```
+   ./gradlew bootRun
+   ```
+
+3. Access API documentation:
+   ```
+   http://localhost:8082/swagger-ui.html
+   ```
+
+## Security
+The service uses JWT token-based authentication. All endpoints (except Swagger) require a valid JWT token in the Authorization header. 
