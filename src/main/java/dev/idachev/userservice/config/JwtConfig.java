@@ -1,10 +1,7 @@
 package dev.idachev.userservice.config;
 
-import io.jsonwebtoken.Claims;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.MalformedJwtException;
-import io.jsonwebtoken.UnsupportedJwtException;
+import dev.idachev.userservice.model.User;
+import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -12,15 +9,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
-import dev.idachev.userservice.model.User;
-
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Configuration for JWT token generation, validation, and parsing.
@@ -45,7 +40,7 @@ public class JwtConfig {
         // Use the HMAC-SHA384 algorithm to sign tokens (matching the recipe-service)
         byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
         this.signingKey = Keys.hmacShaKeyFor(secretBytes);
-        
+
         log.info("JWT signing key initialized successfully with algorithm: {}", "HS384");
     }
 
@@ -77,20 +72,20 @@ public class JwtConfig {
      *
      * @param extraClaims Additional claims to include in the token
      * @param userDetails User details from Spring Security
-     * @param expiration Expiration time in milliseconds
+     * @param expiration  Expiration time in milliseconds
      * @return JWT token string
      */
     private String buildToken(Map<String, Object> extraClaims, UserDetails userDetails, long expiration) {
 
         Map<String, Object> claims = new HashMap<>(extraClaims);
         claims.put("authorities", userDetails.getAuthorities());
-        
+
         // Add user-specific claims
         if (userDetails instanceof User user) {
             claims.put("userId", user.getId().toString());
             claims.put("email", user.getEmail());
         }
-        
+
         return Jwts.builder()
                 .setClaims(claims)
                 .setSubject(userDetails.getUsername())
@@ -126,7 +121,7 @@ public class JwtConfig {
     /**
      * Extracts a specific claim from a token using the provided claims resolver function
      *
-     * @param token JWT token
+     * @param token          JWT token
      * @param claimsResolver Function to extract a specific claim
      * @return The extracted claim value
      */
@@ -196,7 +191,7 @@ public class JwtConfig {
     /**
      * Validates a token for the given user details
      *
-     * @param token JWT token
+     * @param token       JWT token
      * @param userDetails User details to validate against
      * @return true if valid, false otherwise
      */

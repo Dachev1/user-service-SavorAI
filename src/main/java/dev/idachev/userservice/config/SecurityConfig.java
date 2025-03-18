@@ -43,25 +43,24 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-
         return http
             .csrf(AbstractHttpConfigurer::disable)
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .authorizeHttpRequests(auth -> auth
                 // Public API endpoints
                 .requestMatchers(
+                    // Authentication endpoints
                     "/api/v1/user/register", 
-                    "/api/v1/user/login", 
-                    "/api/v1/user/verify/**", 
-                    "/api/v1/user/verify-email/**",
-                    "/api/v1/user/verification-status",
-                    "/api/v1/user/resend-verification",
+                    "/api/v1/user/login",
+                    // Verification endpoints
+                    "/api/v1/verification/status",
+                    "/api/v1/verification/resend",
+                    "/api/v1/verification/verify/**",
                     // Swagger UI and API docs
                     "/swagger-ui/**",
                     "/api-docs/**", 
                     "/v3/api-docs/**",
-                    "/css/**", "/js/**", "/images/**", "/webjars/**",
-                    "/actuator/health", "/actuator/info"
+                    "/css/**", "/js/**", "/images/**"
                 ).permitAll()
                 .anyRequest().authenticated()
             )

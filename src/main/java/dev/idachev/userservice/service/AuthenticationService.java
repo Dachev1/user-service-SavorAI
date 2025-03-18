@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.Optional;
 
 @Service
 @Slf4j
@@ -82,18 +83,17 @@ public class AuthenticationService {
     @Transactional
     public ErrorResponse logout(String authHeader) {
         try {
-            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-            if (isAuthenticatedUser(authentication)) {
-                User user = (User) authentication.getPrincipal();
-                user.setLoggedIn(false);
-                userRepository.save(user);
-
-                log.info("User logged out: {}", user.getEmail());
-                
-                // Extract and blacklist the token
-                blacklistToken(authHeader);
-            }
+            Optional.ofNullable(SecurityContextHolder.getContext().getAuthentication())
+                .filter(this::isAuthenticatedUser)
+                .map(authentication -> (User) authentication.getPrincipal())
+                .ifPresent(user -> {
+                    user.setLoggedIn(false);
+                    userRepository.save(user);
+                    log.info("User logged out: {}", user.getEmail());
+                });
+            
+            // Extract and blacklist the token
+            blacklistToken(authHeader);
         } finally {
             SecurityContextHolder.clearContext();
         }
@@ -110,15 +110,16 @@ public class AuthenticationService {
      */
     private void blacklistToken(String authHeader) {
         try {
-            if (authHeader != null && authHeader.startsWith("Bearer ")) {
-                String jwtToken = authHeader.substring(7);
-                Date expiryDate = jwtConfig.extractExpiration(jwtToken);
-                
-                if (expiryDate != null) {
-                    tokenBlacklistService.blacklistToken(jwtToken, expiryDate.getTime());
-                    log.info("Token blacklisted successfully, expires at: {}", expiryDate);
-                }
-            }
+            Optional.ofNullable(authHeader)
+                .filter(header -> header.startsWith("Bearer "))
+                .map(header -> header.substring(7))
+                .ifPresent(jwtToken -> {
+                    Date expiryDate = jwtConfig.extractExpiration(jwtToken);
+                    if (expiryDate != null) {
+                        tokenBlacklistService.blacklistToken(jwtToken, expiryDate.getTime());
+                        log.info("Token blacklisted successfully, expires at: {}", expiryDate);
+                    }
+                });
         } catch (Exception e) {
             log.error("Error blacklisting token: {}", e.getMessage());
         }
@@ -208,9 +209,10 @@ public class AuthenticationService {
     }
 
     private boolean isAuthenticatedUser(Authentication authentication) {
-
-        return authentication != null &&
-                authentication.isAuthenticated() &&
-                authentication.getPrincipal() instanceof User;
+        return Optional.ofNullable(authentication)
+                .filter(Authentication::isAuthenticated)
+                .map(Authentication::getPrincipal)
+                .filter(principal -> principal instanceof User)
+                .isPresent();
     }
 } 

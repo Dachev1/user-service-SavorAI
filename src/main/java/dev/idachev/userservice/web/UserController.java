@@ -16,8 +16,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
-
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/user")
@@ -49,7 +47,6 @@ public class UserController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
-
         log.info("Registration request received for email: {}", request.getEmail());
         return ResponseEntity.status(HttpStatus.CREATED).body(userService.register(request));
     }
@@ -70,7 +67,6 @@ public class UserController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-
         log.info("Login request received for email: {}", request.getEmail());
         return ResponseEntity.ok(authenticationService.login(request));
     }
@@ -83,7 +79,6 @@ public class UserController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public ResponseEntity<UserResponse> getCurrentUser() {
-
         log.debug("Current user information requested");
         return ResponseEntity.ok(authenticationService.getCurrentUserInfo());
     }
@@ -96,75 +91,5 @@ public class UserController {
     public ResponseEntity<ErrorResponse> logout(@RequestHeader("Authorization") String token) {
         log.info("Logout request received");
         return ResponseEntity.ok(authenticationService.logout(token));
-    }
-
-    /**
-     * Checks user verification status
-     *
-     * @param email User email
-     * @return Auth response with verification status
-     */
-    @GetMapping("/verification-status")
-    @Operation(summary = "Check verification status", description = "Returns verification status for a user email")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Status retrieved successfully"),
-            @ApiResponse(responseCode = "404", description = "User not found",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    })
-    public ResponseEntity<AuthResponse> getVerificationStatus(@RequestParam String email) {
-        log.info("Verification status check for email: {}", email);
-        return ResponseEntity.ok(authenticationService.getVerificationStatus(email));
-    }
-
-    /**
-     * Resends verification email
-     *
-     * @param email User email
-     * @return Message indicating whether email was sent
-     */
-    @PostMapping("/resend-verification")
-    @Operation(summary = "Resend verification email", description = "Sends a new verification email to the user")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Email sent successfully"),
-            @ApiResponse(responseCode = "400", description = "Failed to send email or user already verified",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class))),
-            @ApiResponse(responseCode = "404", description = "User not found",
-                    content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
-    })
-    public ResponseEntity<EmailVerificationResponse> resendVerificationEmail(@RequestParam String email) {
-        log.info("Resend verification email request for: {}", email);
-        boolean sent = userService.resendVerificationEmail(email);
-
-        EmailVerificationResponse response = new EmailVerificationResponse(
-                sent,
-                sent ? "Verification email has been resent. Please check your inbox."
-                        : "Failed to resend verification email. Please try again later.",
-                LocalDateTime.now()
-        );
-
-        return ResponseEntity.ok(response);
-    }
-
-    /**
-     * Verifies user email with token
-     *
-     * @param token Verification token
-     * @return Verification result
-     */
-    @GetMapping("/verify/{token}")
-    @Operation(summary = "Verify email", description = "Verifies user email using token")
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Email verified successfully"),
-            @ApiResponse(responseCode = "400", description = "Invalid or expired token")
-    })
-    public ResponseEntity<String> verifyEmail(@PathVariable String token) {
-        log.info("Email verification request with token");
-        boolean verified = userService.verifyEmail(token);
-
-        if (verified) {
-            return ResponseEntity.ok("Email verified successfully. You can now log in.");
-        } else {
-            return ResponseEntity.badRequest().body("Invalid or expired verification token.");
-        }
     }
 } 

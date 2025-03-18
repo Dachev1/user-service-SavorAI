@@ -15,6 +15,7 @@ import org.thymeleaf.context.Context;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.Optional;
 
 /**
  * Service for email operations and management
@@ -67,10 +68,12 @@ public class EmailService {
             throw new IllegalArgumentException("User cannot be null");
         }
         
-        if (user.getEmail() == null || user.getEmail().trim().isEmpty()) {
-            log.error("Cannot send verification email to user with empty email");
-            throw new IllegalArgumentException("User email cannot be empty");
-        }
+        Optional.ofNullable(user.getEmail())
+            .filter(email -> !email.trim().isEmpty())
+            .orElseThrow(() -> {
+                log.error("Cannot send verification email to user with empty email");
+                return new IllegalArgumentException("User email cannot be empty");
+            });
         
         sendVerificationEmail(user.getEmail(), user.getUsername(), user.getVerificationToken());
     }
@@ -85,19 +88,19 @@ public class EmailService {
     public void sendVerificationEmail(String to, String username, String verificationToken) {
         try {
             // Input validation
-            if (to == null || to.trim().isEmpty()) {
-                throw new IllegalArgumentException("Email address cannot be empty");
-            }
+            Optional.ofNullable(to)
+                .filter(email -> !email.trim().isEmpty())
+                .orElseThrow(() -> new IllegalArgumentException("Email address cannot be empty"));
             
-            if (verificationToken == null || verificationToken.trim().isEmpty()) {
-                throw new IllegalArgumentException("Verification token cannot be empty");
-            }
+            Optional.ofNullable(verificationToken)
+                .filter(token -> !token.trim().isEmpty())
+                .orElseThrow(() -> new IllegalArgumentException("Verification token cannot be empty"));
             
             String verificationUrl = buildVerificationUrl(verificationToken);
             log.debug("Sending verification email to {} with URL: {}", to, verificationUrl);
             
             Context context = new Context();
-            context.setVariable("username", username != null ? username : "User");
+            context.setVariable("username", Optional.ofNullable(username).orElse("User"));
             context.setVariable("verificationUrl", verificationUrl);
             context.setVariable("appName", appName);
             
@@ -121,10 +124,17 @@ public class EmailService {
     public CompletableFuture<Void> sendVerificationEmailAsync(User user) {
         return CompletableFuture.runAsync(() -> {
             try {
-                sendVerificationEmail(user);
+                Optional.ofNullable(user)
+                    .ifPresentOrElse(
+                        this::sendVerificationEmail,
+                        () -> log.error("Async verification email failed: user is null")
+                    );
             } catch (Exception e) {
                 log.error("Async verification email failed for user {}: {}", 
-                        user != null ? user.getEmail() : "null", e.getMessage(), e);
+                        Optional.ofNullable(user)
+                            .map(User::getEmail)
+                            .orElse("null"), 
+                        e.getMessage(), e);
                 // We don't rethrow in async context
             }
         });
@@ -168,7 +178,8 @@ public class EmailService {
             baseUrl.append("/");
         }
         
-        baseUrl.append("api/v1/user/verify-email/").append(token);
+        // Use the new verification endpoint path
+        baseUrl.append("api/v1/verification/verify/").append(token);
         
         String url = baseUrl.toString();
         log.debug("Built verification URL: {}", url);

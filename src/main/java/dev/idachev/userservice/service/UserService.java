@@ -16,10 +16,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
-/**
- * Service for user management operations
- */
+
 @Service
 @Slf4j
 public class UserService {
@@ -49,7 +48,7 @@ public class UserService {
     public AuthResponse register(RegisterRequest request) {
         // Validate request
         try {
-            validateNewUser(request);
+            validateExistingUser(request);
         } catch (Exception e) {
             log.warn("Registration validation failed: {}", e.getMessage());
             return DtoMapper.mapToAuthResponse(false, e.getMessage());
@@ -89,38 +88,28 @@ public class UserService {
      */
     @Transactional
     public boolean verifyEmail(String token) {
-        if (token == null || token.trim().isEmpty()) {
-            log.warn("Empty verification token");
-            throw new ResourceNotFoundException("Verification token cannot be empty");
-        }
-        
-        try {
-            User savedUser = userRepository.findByVerificationToken(token)
-                    .orElseThrow(() -> {
-                        log.warn("No user found with verification token: {}", token);
-                        return new ResourceNotFoundException("Invalid verification token");
-                    });
-
-            if (savedUser.isEnabled()) {
-                log.info("User already verified: {}", savedUser.getEmail());
-                return true;
-            }
-
-            savedUser.setEnabled(true);
-            savedUser.setVerificationToken(null); // Clear token after use
-            savedUser.setUpdatedOn(LocalDateTime.now());
-            userRepository.save(savedUser);
-
-            log.info("Email verified for user: {}, new enabled status: {}", savedUser.getEmail(), savedUser.isEnabled());
-            
-            return true;
-        } catch (ResourceNotFoundException e) {
-            // Re-throw ResourceNotFoundException for specific handling
-            throw e;
-        } catch (Exception e) {
-            log.error("Error verifying email with token: {}", token, e);
-            throw new RuntimeException("Email verification failed", e);
-        }
+        return Optional.ofNullable(token)
+                .filter(t -> !t.trim().isEmpty())
+                .flatMap(userRepository::findByVerificationToken)
+                .map(user -> {
+                    if (user.isEnabled()) {
+                        log.info("User already verified: {}", user.getEmail());
+                        return true;
+                    }
+                    
+                    user.setEnabled(true);
+                    user.setVerificationToken(null); // Clear token after use
+                    user.setUpdatedOn(LocalDateTime.now());
+                    userRepository.save(user);
+                    
+                    log.info("Email verified for user: {}, new enabled status: {}", 
+                            user.getEmail(), user.isEnabled());
+                    return true;
+                })
+                .orElseThrow(() -> {
+                    log.warn("No user found with verification token: {}", token);
+                    return new ResourceNotFoundException("Invalid verification token");
+                });
     }
 
     /**
@@ -177,66 +166,54 @@ public class UserService {
      */
     @Transactional
     public VerificationResponse verifyEmailAndGetResponse(String token) {
-        if (token == null || token.trim().isEmpty()) {
-            log.warn("Empty verification token in verifyEmailAndGetResponse");
-            return DtoMapper.mapToVerificationResponse(
-                    null, false, "Verification failed. The token is empty or invalid.");
-        }
-        
-        try {
-            log.info("Processing verification token with detailed response");
-            boolean verified = verifyEmail(token);
+        return Optional.ofNullable(token)
+                .filter(t -> !t.trim().isEmpty())
+                .map(t -> {
+                    try {
+                        log.info("Processing verification token with detailed response");
+                        boolean verified = verifyEmail(t);
 
-            return DtoMapper.mapToVerificationResponse(
-                    null, true, "Your email has been verified successfully. You can now log in to your account.");
-                
-        } catch (ResourceNotFoundException e) {
-            log.warn("Resource not found in verification: {}", e.getMessage());
-            
-            // Check if user is already verified
-            try {
-                User existingUser = userRepository.findByEmail(
-                        userRepository.findByVerificationToken(token)
-                                .orElseThrow(() -> new ResourceNotFoundException("User not found"))
-                                .getEmail())
-                        .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+                        return DtoMapper.mapToVerificationResponse(
+                                null, true, "Your email has been verified successfully. You can now log in to your account.");
+                    } catch (ResourceNotFoundException e) {
+                        log.warn("Resource not found in verification: {}", e.getMessage());
                         
-                if (existingUser.isEnabled()) {
+                        // Check if user is already verified
+                        try {
+                            return userRepository.findByVerificationToken(t)
+                                    .flatMap(u -> userRepository.findByEmail(u.getEmail()))
+                                    .filter(User::isEnabled)
+                                    .map(u -> DtoMapper.mapToVerificationResponse(
+                                            null, true, "Your email was already verified. You can log in to your account."))
+                                    .orElseGet(() -> DtoMapper.mapToVerificationResponse(
+                                            null, false, "Verification failed. " + e.getMessage()));
+                        } catch (Exception ignored) {
+                            // Fall through to the failure response
+                            return DtoMapper.mapToVerificationResponse(
+                                    null, false, "Verification failed. " + e.getMessage());
+                        }
+                    } catch (Exception e) {
+                        log.error("Unexpected error in email verification: {}", e.getMessage(), e);
+                        return DtoMapper.mapToVerificationResponse(
+                                null, false, "An error occurred during verification. Please try again later.");
+                    }
+                })
+                .orElseGet(() -> {
+                    log.warn("Empty verification token in verifyEmailAndGetResponse");
                     return DtoMapper.mapToVerificationResponse(
-                            null, true, "Your email was already verified. You can log in to your account.");
-                }
-            } catch (Exception ignored) {
-                // Do nothing, fall through to the failure response
-            }
-            
-            return DtoMapper.mapToVerificationResponse(
-                    null, false, "Verification failed. " + e.getMessage());
-        } catch (Exception e) {
-            log.error("Unexpected error in email verification: {}", e.getMessage(), e);
-            return DtoMapper.mapToVerificationResponse(
-                    null, false, "An error occurred during verification. Please try again later.");
-        }
+                            null, false, "Verification failed. The token is empty or invalid.");
+                });
     }
 
     // Private helper methods
 
-    private void validateNewUser(RegisterRequest request) {
+    private void validateExistingUser(RegisterRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("Registration request cannot be null");
         }
         
-        if (request.getUsername() == null || request.getUsername().trim().isEmpty()) {
-            throw new IllegalArgumentException("Username cannot be empty");
-        }
-        
-        if (request.getEmail() == null || request.getEmail().trim().isEmpty()) {
-            throw new IllegalArgumentException("Email cannot be empty");
-        }
-        
-        if (request.getPassword() == null || request.getPassword().trim().isEmpty()) {
-            throw new IllegalArgumentException("Password cannot be empty");
-        }
-        
+        // Let the bean validation handle basic validation through annotations
+        // Only check for existing username/email in the service
         if (userRepository.existsByUsername(request.getUsername())) {
             throw new DuplicateUserException("Username already exists");
         }

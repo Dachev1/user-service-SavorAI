@@ -4,16 +4,21 @@ import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.DuplicateUserException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.web.dto.ErrorResponse;
+import dev.idachev.userservice.web.dto.VerificationResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -29,6 +34,7 @@ public class GlobalExceptionHandler {
      * Handles authentication and authorization exceptions
      */
     @ExceptionHandler({BadCredentialsException.class, AuthenticationException.class})
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ResponseEntity<ErrorResponse> handleAuthErrors(Exception ex) {
         // Special case for already logged in users - use 400 (Bad Request) instead of 401 (Unauthorized)
         if (ex instanceof AuthenticationException &&
@@ -46,6 +52,7 @@ public class GlobalExceptionHandler {
      * Handles resource not found exceptions
      */
     @ExceptionHandler({UsernameNotFoundException.class, ResourceNotFoundException.class})
+    @ResponseStatus(HttpStatus.NOT_FOUND)
     public ResponseEntity<ErrorResponse> handleNotFoundExceptions(Exception ex) {
         log.error("Resource not found: {}", ex.getMessage());
         return createResponse(HttpStatus.NOT_FOUND, ex.getMessage());
@@ -53,21 +60,31 @@ public class GlobalExceptionHandler {
 
     /**
      * Handles validation errors from request body validation
+     * Returns a map of field errors for more detailed client feedback
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationExceptions(MethodArgumentNotValidException ex) {
-        String errorMessage = ex.getBindingResult().getFieldErrors().stream()
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<Map<String, String>> handleValidationExceptions(MethodArgumentNotValidException ex) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getBindingResult().getAllErrors().forEach((error) -> {
+            String fieldName = ((FieldError) error).getField();
+            String errorMessage = error.getDefaultMessage();
+            errors.put(fieldName, errorMessage);
+        });
+        
+        String errorSummary = ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
-                .collect(Collectors.joining(", ", "Validation failed: ", ""));
-
-        log.error("Validation error: {}", errorMessage);
-        return createResponse(HttpStatus.BAD_REQUEST, errorMessage);
+                .collect(Collectors.joining(", "));
+        log.error("Validation error: {}", errorSummary);
+        
+        return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
     }
 
     /**
      * Handles business logic errors resulting in bad requests
      */
     @ExceptionHandler({IllegalArgumentException.class})
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ResponseEntity<ErrorResponse> handleBadRequestExceptions(Exception ex) {
         log.error("Bad request: {}", ex.getMessage());
         return createResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
@@ -77,6 +94,7 @@ public class GlobalExceptionHandler {
      * Handles duplicate user registration attempts
      */
     @ExceptionHandler(DuplicateUserException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
     public ResponseEntity<ErrorResponse> handleDuplicateUserException(DuplicateUserException ex) {
         log.error("User conflict: {}", ex.getMessage());
         return createResponse(HttpStatus.CONFLICT, ex.getMessage());
@@ -86,6 +104,7 @@ public class GlobalExceptionHandler {
      * Fallback handler for all other uncaught exceptions
      */
     @ExceptionHandler(Exception.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ResponseEntity<ErrorResponse> handleGenericException(Exception ex) {
         // Log the full stack trace for unexpected errors
         log.error("Unexpected error: {}", ex.getMessage(), ex);

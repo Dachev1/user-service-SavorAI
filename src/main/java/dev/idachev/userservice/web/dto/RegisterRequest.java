@@ -9,6 +9,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * Data Transfer Object for user registration requests
+ */
 @Data
 @Builder
 @NoArgsConstructor
@@ -16,17 +19,17 @@ import lombok.NoArgsConstructor;
 @Schema(description = "Request payload for user registration")
 public class RegisterRequest {
     
-    @NotBlank(message = "Username is required")
+    @NotBlank(message = "Username cannot be empty")
     @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
     @Schema(description = "User's username (3-50 characters)", example = "johndoe")
     private String username;
     
-    @NotBlank(message = "Email is required")
-    @Email(message = "Email should be valid")
+    @NotBlank(message = "Email cannot be empty")
+    @Email(message = "Email must be valid")
     @Schema(description = "User's email address", example = "john.doe@example.com")
     private String email;
     
-    @NotBlank(message = "Password is required")
+    @NotBlank(message = "Password cannot be empty")
     @Size(min = 6, message = "Password must be at least 6 characters")
     @Schema(description = "User's password (min 6 characters)", example = "password123")
     private String password;
