@@ -1,11 +1,15 @@
 server:
-  port: ${SERVER_PORT:8081}
+  port: 8081
   servlet:
     context-path: /
 
 spring:
   application:
     name: user-service
+  
+  # Import environment variables from .properties file
+  config:
+    import: optional:classpath:.env.properties
   
   # Database configuration
   datasource:
@@ -40,9 +44,9 @@ spring:
 app:
   # Service URL (used for email verification links)
   service:
-    url: ${APP_SERVICE_URL:http://localhost:8081}
+    url: http://localhost:8081
   frontend:
-    url: ${APP_FRONTEND_URL:http://localhost:5173}
+    url: http://localhost:5173
     routes:
       login: /login
       register: /register
@@ -50,13 +54,13 @@ app:
 # Security configuration
 jwt:
   secret: ${JWT_SECRET}
-  expiration: ${JWT_EXPIRATION:86400000} # 24 hours
+  expiration: 86400000 # 24 hours
   blacklist:
-    cleanup-interval: ${JWT_BLACKLIST_CLEANUP_INTERVAL:3600} # Cleanup interval in seconds (1 hour)
+    cleanup-interval: 3600 # Cleanup interval in seconds (1 hour)
 
 # CORS configuration
 cors:
-  allowed-origins: ${APP_FRONTEND_URL:http://localhost:5173}
+  allowed-origins: http://localhost:5173
   allowed-methods: GET,POST,PUT,DELETE,OPTIONS
   allowed-headers: Authorization,Content-Type
   allow-credentials: true
@@ -65,9 +69,10 @@ cors:
 logging:
   level:
     root: INFO
+    dev.idachev.userservice: DEBUG
     org.springframework.web: INFO
     org.springframework.security: INFO
-    org.hibernate.SQL: DEBUG
+    org.hibernate.SQL: DEBUG 
 
 # Swagger/OpenAPI configuration
 springdoc:

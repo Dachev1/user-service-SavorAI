@@ -1,25 +1,55 @@
 # SavorAI User Service
 
-User authentication and account management service for the SavorAI platform.
+![Java](https://img.shields.io/badge/Java-17-orange)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.x-green)
+![MySQL](https://img.shields.io/badge/MySQL-8.0-blue)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## Features
+User authentication and account management microservice for the SavorAI platform. This service handles all user-related operations including registration, authentication, profile management, and security.
 
-- User registration and authentication
-- Email verification
-- JWT-based authentication
-- Secure password handling
-- Account management
+## 📋 Features
 
-## Technology Stack
+- **User Management**
+  - Registration with email verification
+  - Login/logout functionality
+  - Password reset workflows
+  - Account activation/deactivation
+  
+- **Security**
+  - JWT-based authentication
+  - Role-based access control
+  - Secure password hashing
+  - Protection against common attacks
+  
+- **Profile Management**
+  - User profile creation and editing
+  - Preference management
+  - Activity history
 
-- Java 17
-- Spring Boot 3.2.x
-- Spring Security
-- Spring Data JPA
-- MySQL Database
-- Thymeleaf (for email templates)
+## 🛠️ Technology Stack
 
-## Setup and Configuration
+- **Backend**
+  - Java 17
+  - Spring Boot 3.2.x
+  - Spring Security
+  - Spring Data JPA
+  - Hibernate
+  
+- **Database**
+  - MySQL 8.0+
+  
+- **Email**
+  - Spring Mail
+  - Thymeleaf (for email templates)
+  
+- **Documentation**
+  - OpenAPI/Swagger
+  
+- **Testing**
+  - JUnit 5
+  - Mockito
+
+## 🚀 Getting Started
 
 ### Prerequisites
 
@@ -27,28 +57,53 @@ User authentication and account management service for the SavorAI platform.
 - MySQL 8.0 or later
 - Gradle 8.x
 
-### Environment Variables
+### Configuration
 
-This application uses environment variables for sensitive configuration. Before running, make sure to set the following environment variables:
+This application uses environment variables for sensitive configuration. Before running, set up the following:
 
-```
+#### Option 1: Environment Variables
+
+Set these environment variables in your system:
+
+```bash
 # Database Configuration
-DB_USERNAME=your_database_username
-DB_PASSWORD=your_database_password
+export DB_USERNAME=your_database_username
+export DB_PASSWORD=your_database_password
 
 # Email Service Configuration
-MAIL_USERNAME=your_email_username
-MAIL_PASSWORD=your_email_password
+export MAIL_USERNAME=your_email_username
+export MAIL_PASSWORD=your_email_password
 
 # JWT Configuration
+export JWT_SECRET=your_jwt_secret_key
+```
+
+#### Option 2: Properties File
+
+Create a `.env.properties` file in `src/main/resources/` with the following content:
+
+```properties
+DB_USERNAME=your_database_username
+DB_PASSWORD=your_database_password
+MAIL_USERNAME=your_email_username
+MAIL_PASSWORD=your_email_password
 JWT_SECRET=your_jwt_secret_key
 ```
 
-You can either set these in your environment or create a `.env` file in the root directory (this file is gitignored and should never be committed to version control).
+> ⚠️ **Important**: If using a Gmail account for sending emails, you must use an App Password instead of your regular password. Spaces in the App Password should be removed.
+
+### Building the Application
+
+```bash
+# Clone the repository
+git clone https://github.com/yourusername/savorai-user-service.git
+cd savorai-user-service
+
+# Build the project
+./gradlew build
+```
 
 ### Running the Application
-
-Using Gradle Wrapper:
 
 ```bash
 # For Windows
@@ -58,22 +113,83 @@ Using Gradle Wrapper:
 ./gradlew bootRun
 ```
 
-Note for Windows PowerShell users: Use semicolons instead of && for command chaining:
-```powershell
-cd user-service; ./gradlew.bat bootRun
+The application will start on port 8081 by default (configurable in `application.yml`).
+
+## 📝 API Documentation
+
+Once the application is running, access the Swagger UI at:
+```
+http://localhost:8081/swagger-ui.html
 ```
 
-The application will start on port 8081 by default (configurable in application.yml).
+### Core Endpoints
 
-## API Endpoints
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|--------------|
+| POST | `/api/v1/auth/register` | Register a new user | No |
+| POST | `/api/v1/auth/login` | Authenticate a user | No |
+| GET | `/api/v1/auth/verify-email/{token}` | Verify email address | No |
+| POST | `/api/v1/auth/password/reset-request` | Request password reset | No |
+| POST | `/api/v1/auth/password/reset` | Reset password with token | No |
+| GET | `/api/v1/user/me` | Get current user profile | Yes |
+| PUT | `/api/v1/user/me` | Update user profile | Yes |
 
-- `POST /api/v1/user/register` - Register a new user
-- `POST /api/v1/user/login` - Authenticate a user
-- `GET /api/v1/user/verify-email/{token}` - Verify user email
-- More endpoints documented in the code
+## 🔧 Development
 
-## Development Notes
+### Project Structure
 
-- The main application configuration is in `src/main/resources/application.yml`
-- Environment-specific configurations should use profile-specific YML files (e.g. `application-dev.yml`)
-- Email templates are located in `src/main/resources/templates/email/` 
+```
+src/
+├── main/
+│   ├── java/
+│   │   └── dev.idachev.userservice/
+│   │       ├── config/        # Application configuration
+│   │       ├── domain/        # Domain models
+│   │       ├── repository/    # Data access layer
+│   │       ├── security/      # Security configurations
+│   │       ├── service/       # Business logic
+│   │       ├── web/           # Controllers and DTOs
+│   │       └── UserServiceApplication.java
+│   └── resources/
+│       ├── templates/         # Email templates
+│       └── application.yml    # Application configuration
+└── test/                      # Unit and integration tests
+```
+
+### Running Tests
+
+```bash
+./gradlew test
+```
+
+## ⚠️ Troubleshooting
+
+### Common Issues
+
+#### Email Authentication Errors
+
+If you encounter `jakarta.mail.AuthenticationFailedException`:
+
+1. Ensure you're using an App Password if using Gmail (with 2FA enabled)
+2. Remove any spaces from the App Password
+3. Verify the email credentials are correctly set in your configuration
+
+#### Database Connection Issues
+
+1. Ensure MySQL is running and accessible
+2. Verify the database exists or the user has permission to create it
+3. Check database credentials in your configuration
+
+## 📄 License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 👥 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request 
