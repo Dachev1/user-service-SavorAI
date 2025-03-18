@@ -26,6 +26,8 @@ application-prod.yml
 ### Environment Variables ###
 .env
 .env.*
+*.env.properties
+src/main/resources/.env.properties
 !.env.example
 
 ### STS / Eclipse ###
@@ -80,4 +82,5 @@ logs/
 **/src/main/resources/application-*.properties
 !**/src/main/resources/application.properties
 *secrets*
-*credentials* 
+*credentials*
+**/src/main/resources/.env.properties 

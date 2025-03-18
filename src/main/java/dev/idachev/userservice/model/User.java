@@ -37,6 +37,7 @@ public class User implements UserDetails {
     @Column(nullable = false)
     private String password;
 
+    @Column
     private boolean enabled;
 
     @Column
@@ -54,20 +55,6 @@ public class User implements UserDetails {
     @Column
     private boolean loggedIn = false;
 
-    @Override
-    public String getUsername() {
-        return username;
-    }
-
-    @Override
-    public String getPassword() {
-        return password;
-    }
-
-    @Override
-    public boolean isEnabled() {
-        return enabled;
-    }
 
     @Override
     public boolean isAccountNonExpired() {
@@ -89,39 +76,8 @@ public class User implements UserDetails {
         updatedOn = LocalDateTime.now();
     }
 
-    public void setEnabled(boolean enabled) {
-        this.enabled = enabled;
-        this.updatedOn = LocalDateTime.now();
-    }
-
-    public void setUsername(String username) {
-        this.username = username;
-        this.updatedOn = LocalDateTime.now();
-    }
-
-    public void setEmail(String email) {
-        this.email = email;
-        this.updatedOn = LocalDateTime.now();
-    }
-
-    public void setPassword(String password) {
-        this.password = password;
-        this.updatedOn = LocalDateTime.now();
-    }
-
-    public void setVerificationToken(String verificationToken) {
-        this.verificationToken = verificationToken;
-        this.updatedOn = LocalDateTime.now();
-    }
-
-    public void setLoggedIn(boolean loggedIn) {
-        this.loggedIn = loggedIn;
-        this.updatedOn = LocalDateTime.now();
-    }
-
     public void updateLastLogin() {
         this.lastLogin = LocalDateTime.now();
-        this.updatedOn = LocalDateTime.now();
     }
 
     public boolean isVerificationPending() {
@@ -131,18 +87,5 @@ public class User implements UserDetails {
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
         return Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"));
-    }
-    
-    @Override
-    public String toString() {
-        return "User{" +
-                "id=" + id +
-                ", username='" + username + '\'' +
-                ", email='" + email + '\'' +
-                ", enabled=" + enabled +
-                ", verificationPending=" + isVerificationPending() +
-                ", loggedIn=" + loggedIn +
-                ", lastLogin=" + lastLogin +
-                '}';
     }
 } 

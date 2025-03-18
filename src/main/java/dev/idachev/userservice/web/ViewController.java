@@ -46,29 +46,22 @@ public class ViewController {
     public RedirectView verifyEmail(@PathVariable String token) {
         log.info("Processing email verification for token");
 
-        // Default values for invalid token
-        boolean verified = false;
-        String message = "Invalid or missing verification token";
-
-        // Try to verify the token if it's not empty
-        if (token != null && !token.trim().isEmpty()) {
-            try {
-                VerificationResponse response = userService.verifyEmailAndGetResponse(token);
-                verified = response.isSuccess();
-                message = response.getMessage();
-            } catch (Exception e) {
-                log.error("Error during verification: {}", e.getMessage());
-                message = "Verification failed: " + e.getMessage();
-            }
+        // Default values if token is empty
+        if (token == null || token.trim().isEmpty()) {
+            String message = URLEncoder.encode("Invalid or missing verification token", StandardCharsets.UTF_8);
+            return new RedirectView("http://localhost:5173/login?verified=false&message=" + message);
         }
 
+        // Verify the token through service
+        VerificationResponse response = userService.verifyEmailAndGetResponse(token);
+        
         // Encode the message for URL
-        String encodedMessage = URLEncoder.encode(message, StandardCharsets.UTF_8);
+        String encodedMessage = URLEncoder.encode(response.getMessage(), StandardCharsets.UTF_8);
 
         // Direct redirect to the login page
-        String loginUrl = "http://localhost:5173/login?verified=" + verified + "&message=" + encodedMessage;
+        String loginUrl = "http://localhost:5173/login?verified=" + response.isSuccess() + "&message=" + encodedMessage;
 
-        log.info("Redirecting to login page with status: {}", verified);
+        log.info("Redirecting to login page with status: {}", response.isSuccess());
         return new RedirectView(loginUrl);
     }
 } 

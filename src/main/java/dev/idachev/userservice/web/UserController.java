@@ -88,7 +88,7 @@ public class UserController {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Successfully logged out")
     })
-    public ResponseEntity<ErrorResponse> logout(@RequestHeader("Authorization") String token) {
+    public ResponseEntity<GenericResponse> logout(@RequestHeader("Authorization") String token) {
         log.info("Logout request received");
         return ResponseEntity.ok(authenticationService.logout(token));
     }

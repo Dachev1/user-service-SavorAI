@@ -31,7 +31,6 @@ public class UserService {
     public UserService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
-            JwtConfig jwtConfig,
             EmailService emailService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -53,18 +52,18 @@ public class UserService {
             log.warn("Registration validation failed: {}", e.getMessage());
             return DtoMapper.mapToAuthResponse(false, e.getMessage());
         }
-        
+
         log.info("Registering new user with email: {}", request.getEmail());
-        
+
         try {
             User newUser = createNewUser(request);
             User savedUser = userRepository.save(newUser);
-            
+
             // Send verification email asynchronously
             emailService.sendVerificationEmailAsync(savedUser);
-            
+
             log.info("User registered successfully: {}", savedUser.getEmail());
-            
+
             return DtoMapper.mapToAuthResponse(
                     savedUser,
                     true,
@@ -96,13 +95,13 @@ public class UserService {
                         log.info("User already verified: {}", user.getEmail());
                         return true;
                     }
-                    
+
                     user.setEnabled(true);
                     user.setVerificationToken(null); // Clear token after use
                     user.setUpdatedOn(LocalDateTime.now());
                     userRepository.save(user);
-                    
-                    log.info("Email verified for user: {}, new enabled status: {}", 
+
+                    log.info("Email verified for user: {}, new enabled status: {}",
                             user.getEmail(), user.isEnabled());
                     return true;
                 })
@@ -124,9 +123,9 @@ public class UserService {
             log.warn("Cannot resend verification to empty email");
             return false;
         }
-        
+
         log.info("Attempting to resend verification email to: {}", email);
-        
+
         try {
             User user = userRepository.findByEmail(email)
                     .orElseThrow(() -> {
@@ -177,7 +176,7 @@ public class UserService {
                                 null, true, "Your email has been verified successfully. You can now log in to your account.");
                     } catch (ResourceNotFoundException e) {
                         log.warn("Resource not found in verification: {}", e.getMessage());
-                        
+
                         // Check if user is already verified
                         try {
                             return userRepository.findByVerificationToken(t)
@@ -211,7 +210,7 @@ public class UserService {
         if (request == null) {
             throw new IllegalArgumentException("Registration request cannot be null");
         }
-        
+
         // Let the bean validation handle basic validation through annotations
         // Only check for existing username/email in the service
         if (userRepository.existsByUsername(request.getUsername())) {

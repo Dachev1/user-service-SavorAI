@@ -1,7 +1,7 @@
 package dev.idachev.userservice.web;
 
-import dev.idachev.userservice.service.UserService;
 import dev.idachev.userservice.service.AuthenticationService;
+import dev.idachev.userservice.service.UserService;
 import dev.idachev.userservice.web.dto.AuthResponse;
 import dev.idachev.userservice.web.dto.EmailVerificationResponse;
 import dev.idachev.userservice.web.dto.ErrorResponse;
@@ -28,12 +28,9 @@ public class VerificationController {
 
     private final UserService userService;
     private final AuthenticationService authenticationService;
-    
+
     @Value("${app.frontend.url}")
     private String frontendUrl;
-    
-    @Value("${app.frontend.routes.login:/login}")
-    private String loginRoute;
 
     @Autowired
     public VerificationController(UserService userService, AuthenticationService authenticationService) {
@@ -102,30 +99,19 @@ public class VerificationController {
     public RedirectView verifyEmail(@PathVariable String token) {
         log.info("Email verification request with token");
         
-        // Build redirect URL
-        String redirectUrl = buildLoginUrl();
-        
-        try {
-            boolean verified = userService.verifyEmail(token);
-            return new RedirectView(redirectUrl + "?verified=" + verified);
-        } catch (Exception e) {
-            log.error("Error during verification: {}", e.getMessage());
-            return new RedirectView(redirectUrl + "?verified=false&error=verificationFailed");
+        // Use default login path if frontendUrl not set
+        String loginPath = (frontendUrl == null || frontendUrl.isEmpty()) ? "/login" : frontendUrl + "/login";
+
+        // Handle empty token
+        if (token == null || token.trim().isEmpty()) {
+            return new RedirectView(loginPath + "?verified=false&error=EmptyToken");
         }
-    }
-    
-    /**
-     * Helper method to build the frontend login URL
-     */
-    private String buildLoginUrl() {
-        StringBuilder url = new StringBuilder(frontendUrl);
-        
-        // Ensure proper URL formatting
-        if (!frontendUrl.endsWith("/") && !loginRoute.startsWith("/")) {
-            url.append("/");
-        }
-        url.append(loginRoute);
-        
-        return url.toString();
+
+        // Verify the email via service
+        boolean verified = userService.verifyEmail(token);
+        log.info("Email verification result: {}", verified ? "success" : "already verified");
+
+        // Redirect to login page with result
+        return new RedirectView(loginPath + "?verified=" + verified);
     }
 } 

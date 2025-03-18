@@ -29,28 +29,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
-    
+
     // More concise path patterns
     private static final List<String> PUBLIC_PATHS = Arrays.asList(
-            "/api/v1/user/login", 
-            "/api/v1/user/register", 
+            "/api/v1/user/login",
+            "/api/v1/user/register",
             "/api/v1/user/verify",
             "/api/v1/user/verify-email",
             "/api/v1/user/verification-status",
             "/css/", "/js/", "/images/", "/webjars/",
             "/actuator/", "/favicon.ico"
     );
-    
+
     private final JwtConfig jwtConfig;
     private final UserDetailsService userDetailsService;
     private final TokenBlacklistService tokenBlacklistService;
 
     @Autowired
     public JwtAuthenticationFilter(
-            JwtConfig jwtConfig, 
+            JwtConfig jwtConfig,
             UserDetailsService userDetailsService,
             TokenBlacklistService tokenBlacklistService) {
-        
+
         this.jwtConfig = jwtConfig;
         this.userDetailsService = userDetailsService;
         this.tokenBlacklistService = tokenBlacklistService;
@@ -59,9 +59,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return path.startsWith("/api/v1/user/verify/") || 
-               path.startsWith("/api/v1/user/verify-email/") ||
-               PUBLIC_PATHS.stream().anyMatch(path::startsWith);
+        return path.startsWith("/api/v1/user/verify/") ||
+                path.startsWith("/api/v1/user/verify-email/") ||
+                PUBLIC_PATHS.stream().anyMatch(path::startsWith);
     }
 
     @Override
@@ -72,7 +72,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
         try {
             String jwt = getJwtFromRequest(request);
-            
+
             if (StringUtils.hasText(jwt)) {
                 // Check if token is blacklisted before any other validation
                 if (tokenBlacklistService.isBlacklisted(jwt)) {
@@ -96,10 +96,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private void processValidToken(String jwt, HttpServletRequest request) {
         try {
             String username = jwtConfig.extractUsername(jwt);
-            
+
             if (username != null) {
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-                
+
                 if (jwtConfig.validateToken(jwt, userDetails)) {
                     UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                             userDetails, null, userDetails.getAuthorities());
@@ -116,6 +116,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private String getJwtFromRequest(HttpServletRequest request) {
         String bearerToken = request.getHeader(AUTHORIZATION_HEADER);
         return StringUtils.hasText(bearerToken) && bearerToken.startsWith(BEARER_PREFIX) ?
-               bearerToken.substring(BEARER_PREFIX.length()) : null;
+                bearerToken.substring(BEARER_PREFIX.length()) : null;
     }
 } 
