@@ -1,9 +1,9 @@
 package dev.idachev.userservice.service;
 
-import dev.idachev.userservice.config.JwtConfig;
 import dev.idachev.userservice.exception.DuplicateUserException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.mapper.DtoMapper;
+import dev.idachev.userservice.mapper.EntityMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.web.dto.AuthResponse;
@@ -223,17 +223,7 @@ public class UserService {
     }
 
     private User createNewUser(RegisterRequest request) {
-        LocalDateTime now = LocalDateTime.now();
         String verificationToken = emailService.generateVerificationToken();
-
-        return User.builder()
-                .username(request.getUsername())
-                .email(request.getEmail())
-                .password(passwordEncoder.encode(request.getPassword()))
-                .verificationToken(verificationToken)
-                .enabled(false)
-                .createdOn(now)
-                .updatedOn(now)
-                .build();
+        return EntityMapper.mapToNewUser(request, passwordEncoder, verificationToken);
     }
 } 

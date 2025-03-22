@@ -1,15 +1,16 @@
 package dev.idachev.userservice.mapper;
 
 import dev.idachev.userservice.model.User;
-import dev.idachev.userservice.web.dto.AuthResponse;
-import dev.idachev.userservice.web.dto.UserResponse;
-import dev.idachev.userservice.web.dto.VerificationResponse;
+import dev.idachev.userservice.web.dto.*;
+import lombok.experimental.UtilityClass;
 
+import java.time.LocalDateTime;
+
+/**
+ * Utility class for mapping domain entities to DTOs
+ */
+@UtilityClass
 public final class DtoMapper {
-
-    private DtoMapper() {
-        throw new UnsupportedOperationException("This is a utility class and cannot be instantiated");
-    }
 
     /**
      * Maps a User entity to UserResponse DTO
@@ -19,9 +20,7 @@ public final class DtoMapper {
      * @throws IllegalArgumentException if user is null
      */
     public static UserResponse mapToUserResponse(User user) {
-
         if (user == null) {
-
             throw new IllegalArgumentException("Cannot map null user to UserResponse");
         }
 
@@ -35,7 +34,7 @@ public final class DtoMapper {
     }
 
     /**
-     * Maps a User entity to AuthResponse DTO
+     * Maps a User entity to AuthResponse DTO with token
      *
      * @param user  the user entity to map
      * @param token the JWT token (can be empty string for unverified users)
@@ -43,9 +42,7 @@ public final class DtoMapper {
      * @throws IllegalArgumentException if user is null
      */
     public static AuthResponse mapToAuthResponse(User user, String token) {
-
         if (user == null) {
-
             throw new IllegalArgumentException("Cannot map null user to AuthResponse");
         }
 
@@ -56,28 +53,36 @@ public final class DtoMapper {
                 .verified(user.isEnabled())
                 .verificationPending(user.isVerificationPending())
                 .lastLogin(user.getLastLogin())
+                .success(true)
+                .message("")
                 .build();
     }
-    
+
     /**
      * Creates an AuthResponse with success status, message, and basic user info
      * Useful for registration success/failure responses
      *
-     * @param user The user (for username and email)
+     * @param user    The user (for username and email)
      * @param success Whether the operation was successful
      * @param message Response message
      * @return AuthResponse with status information and basic user details
      */
     public static AuthResponse mapToAuthResponse(User user, boolean success, String message) {
+        if (user == null) {
+            return mapToAuthResponse(success, message);
+        }
+
         return AuthResponse.builder()
-                .username(user != null ? user.getUsername() : null)
-                .email(user != null ? user.getEmail() : null)
-                .verificationPending(user != null && !user.isEnabled())
+                .username(user.getUsername())
+                .email(user.getEmail())
+                .verified(user.isEnabled())
+                .verificationPending(user.isVerificationPending())
+                .lastLogin(user.getLastLogin())
                 .success(success)
                 .message(message != null ? message : "")
                 .build();
     }
-    
+
     /**
      * Creates a simple AuthResponse with just success status and message (no user data)
      *
@@ -101,13 +106,56 @@ public final class DtoMapper {
      * @return the VerificationResponse DTO
      */
     public static VerificationResponse mapToVerificationResponse(User user, boolean success, String message) {
-        // User can be null here for failed verification responses
-        UserResponse userData = user != null ? mapToUserResponse(user) : null;
-
         return VerificationResponse.builder()
                 .success(success)
                 .message(message != null ? message : "")
-                .data(userData)
+                .data(user != null ? mapToUserResponse(user) : null)
+                .timestamp(LocalDateTime.now())
                 .build();
+    }
+
+    /**
+     * Creates a generic error response with the specified status and message
+     *
+     * @param status  HTTP status code
+     * @param message Error message
+     * @return ErrorResponse with status information
+     */
+    public static ErrorResponse mapToErrorResponse(int status, String message) {
+        return ErrorResponse.builder()
+                .status(status)
+                .message(message != null ? message : "An error occurred")
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    /**
+     * Creates a generic response with the specified status and message
+     *
+     * @param status  HTTP status code
+     * @param message Response message
+     * @return GenericResponse with status information
+     */
+    public static GenericResponse mapToGenericResponse(int status, String message) {
+        return GenericResponse.builder()
+                .status(status)
+                .message(message != null ? message : "")
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    /**
+     * Creates an email verification response
+     *
+     * @param success Whether the operation was successful
+     * @param message Response message
+     * @return EmailVerificationResponse with status information
+     */
+    public static EmailVerificationResponse mapToEmailVerificationResponse(boolean success, String message) {
+        return new EmailVerificationResponse(
+                success,
+                message != null ? message : "",
+                LocalDateTime.now()
+        );
     }
 } 

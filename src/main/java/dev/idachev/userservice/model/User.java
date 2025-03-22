@@ -44,15 +44,18 @@ public class User implements UserDetails {
     private String verificationToken;
 
     @Column
+    @Builder.Default
     private LocalDateTime createdOn = LocalDateTime.now();
-    
+
     @Column
+    @Builder.Default
     private LocalDateTime updatedOn = LocalDateTime.now();
-    
+
     @Column
     private LocalDateTime lastLogin;
 
     @Column
+    @Builder.Default
     private boolean loggedIn = false;
 
 

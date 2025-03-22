@@ -7,6 +7,10 @@ spring:
   application:
     name: user-service
   
+  # Import environment variables from .properties file
+  config:
+    import: optional:classpath:.env.properties
+  
   # Database configuration
   datasource:
     url: jdbc:mysql://localhost:3306/savorAI_user?createDatabaseIfNotExist=true
