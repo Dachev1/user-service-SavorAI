@@ -4,21 +4,17 @@ import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.DuplicateUserException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.web.dto.ErrorResponse;
-import dev.idachev.userservice.web.dto.VerificationResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -60,24 +56,41 @@ public class GlobalExceptionHandler {
 
     /**
      * Handles validation errors from request body validation
-     * Returns a map of field errors for more detailed client feedback
+     * Returns a standardized error response with consolidated validation errors
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ResponseEntity<Map<String, String>> handleValidationExceptions(MethodArgumentNotValidException ex) {
-        Map<String, String> errors = new HashMap<>();
-        ex.getBindingResult().getAllErrors().forEach((error) -> {
-            String fieldName = ((FieldError) error).getField();
-            String errorMessage = error.getDefaultMessage();
-            errors.put(fieldName, errorMessage);
-        });
-        
-        String errorSummary = ex.getBindingResult().getFieldErrors().stream()
+    public ResponseEntity<ErrorResponse> handleValidationExceptions(MethodArgumentNotValidException ex) {
+        // Extract and format field validation errors
+        String errorMessage = ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
-                .collect(Collectors.joining(", "));
-        log.error("Validation error: {}", errorSummary);
-        
-        return new ResponseEntity<>(errors, HttpStatus.BAD_REQUEST);
+                .collect(Collectors.joining("; "));
+
+        log.error("Validation error: {}", errorMessage);
+
+        // Return standardized error response
+        return createResponse(HttpStatus.BAD_REQUEST, "Validation failed: " + errorMessage);
+    }
+
+    /**
+     * Handles validation errors for request parameters
+     */
+    @ExceptionHandler(jakarta.validation.ConstraintViolationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<ErrorResponse> handleConstraintViolation(jakarta.validation.ConstraintViolationException ex) {
+        String errorMessage = ex.getConstraintViolations().stream()
+                .map(violation -> {
+                    String path = violation.getPropertyPath().toString();
+                    String param = path.contains(".")
+                            ? path.substring(path.lastIndexOf('.') + 1)
+                            : path;
+                    return param + ": " + violation.getMessage();
+                })
+                .collect(Collectors.joining("; "));
+
+        log.error("Constraint violation: {}", errorMessage);
+
+        return createResponse(HttpStatus.BAD_REQUEST, "Validation failed: " + errorMessage);
     }
 
     /**

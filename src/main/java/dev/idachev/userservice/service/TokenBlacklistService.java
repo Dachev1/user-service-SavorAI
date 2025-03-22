@@ -96,18 +96,18 @@ public class TokenBlacklistService {
                 return;
             }
 
-            // Only process at most cleanupBatchSize tokens per run to avoid long-running operations
-            int processed = 0;
-            for (Map.Entry<String, Long> entry : blacklistedTokens.entrySet()) {
-                if (entry.getValue() < now) {
-                    blacklistedTokens.remove(entry.getKey());
+            // Use removeIf for a more efficient implementation
+            // but still limit the number of tokens processed per run
+            int[] processCounter = {0};
+            int maxToProcess = (int) Math.min(cleanupBatchSize, beforeSize);
+            
+            blacklistedTokens.entrySet().removeIf(entry -> {
+                if (processCounter[0] >= maxToProcess) {
+                    return false;
                 }
-
-                processed++;
-                if (processed >= cleanupBatchSize) {
-                    break;
-                }
-            }
+                processCounter[0]++;
+                return entry.getValue() < now;
+            });
 
             int removedCount = beforeSize - blacklistedTokens.size();
             if (removedCount > 0) {

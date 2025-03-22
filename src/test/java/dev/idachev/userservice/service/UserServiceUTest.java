@@ -1,10 +1,13 @@
 package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.exception.ResourceNotFoundException;
+import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.web.dto.AuthResponse;
+import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.RegisterRequest;
+import dev.idachev.userservice.web.dto.UserResponse;
 import dev.idachev.userservice.web.dto.VerificationResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,6 +18,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -42,10 +47,16 @@ public class UserServiceUTest {
     private RegisterRequest validRequest;
     private User mockUser;
     private String verificationToken;
+    
+    // Admin test variables
+    private User regularUser;
+    private User adminUser;
+    private UUID regularUserId;
 
     @BeforeEach
     void setUp() {
         verificationToken = UUID.randomUUID().toString();
+        regularUserId = UUID.randomUUID();
 
         validRequest = RegisterRequest.builder()
                 .username("testuser")
@@ -61,6 +72,27 @@ public class UserServiceUTest {
                 .enabled(false)
                 .createdOn(LocalDateTime.now())
                 .updatedOn(LocalDateTime.now())
+                .build();
+                
+        // Initialize users for admin functionality tests
+        regularUser = User.builder()
+                .id(regularUserId)
+                .username("user")
+                .email("user@example.com")
+                .password("password")
+                .role(Role.USER)
+                .enabled(true)
+                .createdOn(LocalDateTime.now().minusDays(1))
+                .build();
+                
+        adminUser = User.builder()
+                .id(UUID.randomUUID())
+                .username("admin")
+                .email("admin@example.com")
+                .password("password")
+                .role(Role.ADMIN)
+                .enabled(true)
+                .createdOn(LocalDateTime.now().minusDays(2))
                 .build();
 
         lenient().when(emailService.generateVerificationToken()).thenReturn(verificationToken);
@@ -394,5 +426,64 @@ public class UserServiceUTest {
         assertNotNull(response);
         assertFalse(response.isSuccess());
         assertEquals("Verification failed. The token is empty or invalid.", response.getMessage());
+    }
+    
+    // Admin functionality tests
+    
+    @Test
+    void whenGetAllUsers_thenReturnAllUsers() {
+        // Given
+        when(userRepository.findAll()).thenReturn(Arrays.asList(regularUser, adminUser));
+        
+        // When
+        List<UserResponse> result = userService.getAllUsers();
+        
+        // Then
+        assertEquals(2, result.size());
+        
+        // Check first user (regular)
+        UserResponse firstUser = result.get(0);
+        assertEquals(regularUserId, firstUser.getId());
+        assertEquals("user", firstUser.getUsername());
+        assertEquals("USER", firstUser.getRole());
+        
+        // Check second user (admin)
+        UserResponse secondUser = result.get(1);
+        assertEquals("admin", secondUser.getUsername());
+        assertEquals("ADMIN", secondUser.getRole());
+        
+        verify(userRepository).findAll();
+    }
+    
+    @Test
+    void givenValidRequest_whenSetUserRole_thenUpdateRoleAndReturnSuccess() {
+        // Given
+        when(userRepository.findById(regularUserId)).thenReturn(Optional.of(regularUser));
+        
+        // When
+        GenericResponse response = userService.setUserRole(regularUserId, Role.ADMIN);
+        
+        // Then
+        assertEquals(200, response.getStatus());
+        assertEquals("User role updated successfully", response.getMessage());
+        assertEquals(Role.ADMIN, regularUser.getRole());
+        
+        verify(userRepository).findById(regularUserId);
+        verify(userRepository).save(regularUser);
+    }
+    
+    @Test
+    void givenNonExistentUser_whenSetUserRole_thenThrowException() {
+        // Given
+        UUID nonExistentId = UUID.randomUUID();
+        when(userRepository.findById(nonExistentId)).thenReturn(Optional.empty());
+        
+        // When & Then
+        assertThrows(ResourceNotFoundException.class, () -> 
+            userService.setUserRole(nonExistentId, Role.ADMIN)
+        );
+        
+        verify(userRepository).findById(nonExistentId);
+        verify(userRepository, never()).save(any(User.class));
     }
 } 

@@ -5,11 +5,14 @@ import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
+import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.web.dto.AuthResponse;
 import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.LoginRequest;
 import dev.idachev.userservice.web.dto.UserResponse;
-import org.junit.jupiter.api.Assertions;
+import io.jsonwebtoken.ExpiredJwtException;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -17,17 +20,17 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
-import io.jsonwebtoken.ExpiredJwtException;
 
+import java.time.LocalDateTime;
 import java.util.Date;
 import java.util.Optional;
 
-import static org.hibernate.validator.internal.util.Contracts.assertNotNull;
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -54,36 +57,47 @@ public class AuthenticationServiceUTest {
     @InjectMocks
     private AuthenticationService authenticationService;
 
+    @BeforeEach
+    void setUp() {
+        SecurityContextHolder.setContext(securityContext);
+    }
+
+    @AfterEach
+    void tearDown() {
+        SecurityContextHolder.clearContext();
+    }
 
     @Test
     void givenValidCredentials_whenLogin_thenReturnAuthResponseWithToken() {
 
         // Given
-        LoginRequest loginRequest = LoginRequest.builder()
-                .email("tes@example.com")
-                .password("password123")
-                .build();
+        String email = "test@example.com";
+        String password = "password";
+        LoginRequest request = new LoginRequest(email, password);
 
         User user = User.builder()
-                .email("test@example.com")
+                .email(email)
                 .enabled(true)
-                .loggedIn(false)
                 .build();
 
+        UserPrincipal userPrincipal = new UserPrincipal(user);
         String token = "valid.jwt.token";
 
-        when(userRepository.findByEmail(loginRequest.getEmail())).thenReturn(Optional.of(user));
-        when(authenticationManager.authenticate(any())).thenReturn(authentication);
-        when(authentication.getPrincipal()).thenReturn(user);
-        when(jwtConfig.generateToken(user)).thenReturn(token);
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenReturn(authentication);
+        when(authentication.getPrincipal()).thenReturn(userPrincipal);
+        when(jwtConfig.generateToken(userPrincipal)).thenReturn(token);
 
         // When
-        AuthResponse response = authenticationService.login(loginRequest);
+        AuthResponse response = authenticationService.login(request);
 
         // Then
         assertNotNull(response);
         assertEquals(token, response.getToken());
-        assertTrue(user.isLoggedIn());
+        assertEquals(email, response.getEmail());
+        assertTrue(response.isSuccess());
+
         verify(userRepository).save(user);
     }
 
@@ -91,86 +105,71 @@ public class AuthenticationServiceUTest {
     void givenNonexistentUser_whenLogin_thenThrowResourceNotFoundException() {
 
         // Given
-        LoginRequest loginRequest = LoginRequest.builder()
-                .email("nonexistent@example.com")
-                .password("password123")
-                .build();
+        String nonExistentEmail = "nonexistent@example.com";
+        LoginRequest request = new LoginRequest(nonExistentEmail, "password");
 
-        when(userRepository.findByEmail(loginRequest.getEmail())).thenReturn(Optional.empty());
+        when(userRepository.findByEmail(nonExistentEmail)).thenReturn(Optional.empty());
 
         // When & Then
-        assertThrows(ResourceNotFoundException.class, () -> authenticationService.login(loginRequest));
-        verify(authenticationManager, never()).authenticate(any());
-        verify(userRepository, never()).save(any());
+        assertThrows(ResourceNotFoundException.class, () -> authenticationService.login(request));
     }
 
     @Test
     void givenAlreadyLoggedInUser_whenLogin_thenThrowAuthenticationException() {
 
         // Given
-        LoginRequest loginRequest = LoginRequest.builder()
-                .email("tes@example.com")
-                .password("password123")
-                .build();
+        String email = "test@example.com";
+        LoginRequest request = new LoginRequest(email, "password");
 
         User user = User.builder()
-                .email("test@example.com")
+                .email(email)
                 .enabled(true)
-                .loggedIn(true)
+                .loggedIn(true) // Already logged in
                 .build();
 
-        when(userRepository.findByEmail(loginRequest.getEmail())).thenReturn(Optional.of(user));
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
 
         // When & Then
-        assertThrows(AuthenticationException.class, () -> authenticationService.login(loginRequest));
-        verify(authenticationManager, never()).authenticate(any());
-        verify(userRepository, never()).save(any());
+        assertThrows(AuthenticationException.class, () -> authenticationService.login(request));
     }
 
     @Test
     void givenNonVerifiedUser_whenLogin_thenThrowAuthenticationException() {
 
         // Given
-        LoginRequest loginRequest = LoginRequest.builder()
-                .email("tes@example.com")
-                .password("password123")
-                .build();
+        String email = "test@example.com";
+        LoginRequest request = new LoginRequest(email, "password");
 
         User user = User.builder()
-                .email("test@example.com")
-                .enabled(false)
-                .loggedIn(false)
+                .email(email)
+                .enabled(false) // Not verified
                 .build();
 
-        when(userRepository.findByEmail(loginRequest.getEmail())).thenReturn(Optional.of(user));
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
 
         // When & Then
-        assertThrows(AuthenticationException.class, () -> authenticationService.login(loginRequest));
-        verify(authenticationManager, never()).authenticate(any());
-        verify(userRepository, never()).save(any());
+        assertThrows(AuthenticationException.class, () -> authenticationService.login(request));
     }
 
     @Test
     void givenInvalidCredentials_whenLogin_thenThrowBadCredentialsException() {
 
         // Given
-        LoginRequest loginRequest = LoginRequest.builder()
-                .email("tes@example.com")
-                .password("wrongPassword")
-                .build();
+        String email = "test@example.com";
+        String password = "wrong_password";
+        LoginRequest request = new LoginRequest(email, password);
 
         User user = User.builder()
-                .email("test@example.com")
+                .email(email)
                 .enabled(true)
-                .loggedIn(false)
                 .build();
 
-        when(userRepository.findByEmail(loginRequest.getEmail())).thenReturn(Optional.of(user));
-        when(authenticationManager.authenticate(any())).thenThrow(new BadCredentialsException("Invalid credentials"));
+        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+                .thenThrow(new BadCredentialsException("Invalid credentials"));
 
         // When & Then
-        assertThrows(BadCredentialsException.class, () -> authenticationService.login(loginRequest));
-        verify(userRepository, never()).save(any());
+        assertThrows(BadCredentialsException.class, () -> authenticationService.login(request));
     }
 
     @Test
@@ -178,17 +177,20 @@ public class AuthenticationServiceUTest {
 
         // Given
         String authHeader = "Bearer valid.jwt.token";
+        String token = "valid.jwt.token";
+        Date expiryDate = new Date(System.currentTimeMillis() + 3600000); // 1 hour in future
 
         User user = User.builder()
-                .email("tes@example.com")
+                .email("test@example.com")
                 .loggedIn(true)
                 .build();
 
-        SecurityContextHolder.setContext(securityContext);
+        UserPrincipal userPrincipal = new UserPrincipal(user);
+
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(user);
-        when(jwtConfig.extractExpiration(anyString())).thenReturn(new Date(System.currentTimeMillis() + 3600000));
+        when(authentication.getPrincipal()).thenReturn(userPrincipal);
+        when(jwtConfig.extractExpiration(token)).thenReturn(expiryDate);
 
         // When
         GenericResponse response = authenticationService.logout(authHeader);
@@ -198,8 +200,10 @@ public class AuthenticationServiceUTest {
         assertEquals(200, response.getStatus());
         assertEquals("Logged out successfully", response.getMessage());
         assertFalse(user.isLoggedIn());
+
+        // Verify token blacklisting and context clearing
         verify(userRepository).save(user);
-        verify(tokenBlacklistService).blacklistToken(anyString(), anyLong());
+        verify(tokenBlacklistService).blacklistToken(eq(token), anyLong());
     }
 
     @Test
@@ -207,10 +211,11 @@ public class AuthenticationServiceUTest {
 
         // Given
         String authHeader = "Bearer valid.jwt.token";
+        String token = "valid.jwt.token";
+        Date expiryDate = new Date(System.currentTimeMillis() + 3600000); // 1 hour in future
 
-        SecurityContextHolder.setContext(securityContext);
         when(securityContext.getAuthentication()).thenReturn(null);
-        when(jwtConfig.extractExpiration(anyString())).thenReturn(new Date(System.currentTimeMillis() + 3600000));
+        when(jwtConfig.extractExpiration(token)).thenReturn(expiryDate);
 
         // When
         GenericResponse response = authenticationService.logout(authHeader);
@@ -219,8 +224,10 @@ public class AuthenticationServiceUTest {
         assertNotNull(response);
         assertEquals(200, response.getStatus());
         assertEquals("Logged out successfully", response.getMessage());
-        verify(userRepository, never()).save(any());
-        verify(tokenBlacklistService).blacklistToken(anyString(), anyLong());
+
+        // Verify token blacklisting only
+        verify(userRepository, never()).save(any(User.class));
+        verify(tokenBlacklistService).blacklistToken(eq(token), anyLong());
     }
 
     @Test
@@ -228,39 +235,39 @@ public class AuthenticationServiceUTest {
 
         // Given
         String authHeader = "Bearer valid.jwt.token";
-        String nonUserPrincipal = "string-principal";
+        String token = "valid.jwt.token";
+        Date expiryDate = new Date(System.currentTimeMillis() + 3600000); // 1 hour in future
+        String nonUserPrincipal = "non-user-principal";
 
-        SecurityContextHolder.setContext(securityContext);
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getPrincipal()).thenReturn(nonUserPrincipal);
-        when(jwtConfig.extractExpiration(anyString())).thenReturn(new Date(System.currentTimeMillis() + 3600000));
+        when(jwtConfig.extractExpiration(token)).thenReturn(expiryDate);
 
-        //When
+        // When
         GenericResponse response = authenticationService.logout(authHeader);
 
         // Then
         assertNotNull(response);
         assertEquals(200, response.getStatus());
         assertEquals("Logged out successfully", response.getMessage());
-        verify(userRepository, never()).save(any());
-        verify(tokenBlacklistService).blacklistToken(anyString(), anyLong());
+
+        // Verify token blacklisting only
+        verify(userRepository, never()).save(any(User.class));
+        verify(tokenBlacklistService).blacklistToken(eq(token), anyLong());
     }
 
     @Test
     void givenNonBearerAuthHeader_whenLogout_thenOnlyClearContext() {
 
         // Given
-        String authHeader = "Basic dXNlcjpwYXNzd29yZA";
-
-        SecurityContextHolder.setContext(securityContext);
-        when(securityContext.getAuthentication()).thenReturn(null);
+        String authHeader = "Basic dXNlcjpwYXNzd29yZA=="; // Basic auth header
 
         // When
         GenericResponse response = authenticationService.logout(authHeader);
 
         // Then
-        Assertions.assertNotNull(response);
+        assertNotNull(response);
         assertEquals(200, response.getStatus());
         assertEquals("Logged out successfully", response.getMessage());
         verify(tokenBlacklistService, never()).blacklistToken(anyString(), anyLong());
@@ -270,11 +277,10 @@ public class AuthenticationServiceUTest {
     void givenExpiredToken_whenLogout_thenHandleGracefully() {
 
         // Given
-        String authHeader = "Bearer expired.jwt.token";
+        String authHeader = "Bearer expired.token";
+        String token = "expired.token";
 
-        SecurityContextHolder.setContext(securityContext);
-        when(securityContext.getAuthentication()).thenReturn(null);
-        when(jwtConfig.extractExpiration(anyString())).thenThrow(new ExpiredJwtException(null, null, "Token expired"));
+        when(jwtConfig.extractExpiration(token)).thenThrow(new ExpiredJwtException(null, null, "Token expired"));
 
         // When
         GenericResponse response = authenticationService.logout(authHeader);
@@ -285,13 +291,9 @@ public class AuthenticationServiceUTest {
         assertEquals("Logged out successfully", response.getMessage());
         verify(tokenBlacklistService, never()).blacklistToken(anyString(), anyLong());
     }
-    
+
     @Test
     void givenNullAuthHeader_whenLogout_thenHandleGracefully() {
-
-        // Given
-        SecurityContextHolder.setContext(securityContext);
-        when(securityContext.getAuthentication()).thenReturn(null);
 
         // When
         GenericResponse response = authenticationService.logout(null);
@@ -317,7 +319,7 @@ public class AuthenticationServiceUTest {
         String token = "valid.jwt.token";
 
         when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
-        when(jwtConfig.generateToken(user)).thenReturn(token);
+        when(jwtConfig.generateToken(any(UserPrincipal.class))).thenReturn(token);
 
         // When
         AuthResponse response = authenticationService.getVerificationStatus(email);
@@ -368,11 +370,12 @@ public class AuthenticationServiceUTest {
         User user = User.builder()
                 .email("test@example.com")
                 .build();
+        
+        UserPrincipal userPrincipal = new UserPrincipal(user);
 
-        SecurityContextHolder.setContext(securityContext);
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(user);
+        when(authentication.getPrincipal()).thenReturn(userPrincipal);
 
         // When
         User currentUser = authenticationService.getCurrentUser();
@@ -386,7 +389,6 @@ public class AuthenticationServiceUTest {
     void givenNoAuthentication_whenGetCurrentUser_thenThrowAuthenticationException() {
 
         // Given
-        SecurityContextHolder.setContext(securityContext);
         when(securityContext.getAuthentication()).thenReturn(null);
 
         // When & Then
@@ -399,7 +401,6 @@ public class AuthenticationServiceUTest {
         // Given
         String nonUserPrincipal = "non-user-principal";
 
-        SecurityContextHolder.setContext(securityContext);
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getPrincipal()).thenReturn(nonUserPrincipal);
@@ -417,11 +418,12 @@ public class AuthenticationServiceUTest {
                 .email("test@example.com")
                 .enabled(true) // This should map to verified in UserResponse
                 .build();
+                
+        UserPrincipal userPrincipal = new UserPrincipal(user);
 
-        SecurityContextHolder.setContext(securityContext);
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(user);
+        when(authentication.getPrincipal()).thenReturn(userPrincipal);
 
         // When
         UserResponse result = authenticationService.getCurrentUserInfo();

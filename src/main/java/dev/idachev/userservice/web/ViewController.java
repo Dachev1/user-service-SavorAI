@@ -16,9 +16,6 @@ import org.springframework.web.servlet.view.RedirectView;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 
-/**
- * Controller for handling email verification redirects to frontend
- */
 @Slf4j
 @Controller
 @Tag(name = "Email Verification Views", description = "Endpoints for email verification with frontend redirects")
@@ -29,6 +26,23 @@ public class ViewController {
     @Autowired
     public ViewController(UserService userService) {
         this.userService = userService;
+    }
+
+    /**
+     * Handles the case when no token is provided
+     *
+     * @return Redirect to frontend login page with error status
+     */
+    @GetMapping("/api/v1/user/verify-email/")
+    @Operation(summary = "Handle missing token",
+            description = "Handles case when no verification token is provided and redirects to login page")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "302", description = "Redirects to login page with error result")
+    })
+    public RedirectView handleMissingToken() {
+        log.info("Email verification request with missing token");
+        String message = URLEncoder.encode("Invalid or missing verification token", StandardCharsets.UTF_8);
+        return new RedirectView("http://localhost:5173/login?verified=false&message=" + message);
     }
 
     /**
@@ -54,7 +68,7 @@ public class ViewController {
 
         // Verify the token through service
         VerificationResponse response = userService.verifyEmailAndGetResponse(token);
-        
+
         // Encode the message for URL
         String encodedMessage = URLEncoder.encode(response.getMessage(), StandardCharsets.UTF_8);
 

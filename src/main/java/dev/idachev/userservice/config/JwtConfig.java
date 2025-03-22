@@ -1,6 +1,7 @@
 package dev.idachev.userservice.config;
 
 import dev.idachev.userservice.model.User;
+import dev.idachev.userservice.security.UserPrincipal;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
@@ -17,11 +18,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 
-/**
- * Configuration for JWT token generation, validation, and parsing.
- * Provides methods for creating access and refresh tokens, as well as
- * validating and parsing token information.
- */
+
 @Slf4j
 @Component
 public class JwtConfig {
@@ -81,7 +78,8 @@ public class JwtConfig {
         claims.put("authorities", userDetails.getAuthorities());
 
         // Add user-specific claims
-        if (userDetails instanceof User user) {
+        if (userDetails instanceof UserPrincipal userPrincipal) {
+            User user = userPrincipal.user();
             claims.put("userId", user.getId().toString());
             claims.put("email", user.getEmail());
         }

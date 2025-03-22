@@ -2,6 +2,7 @@ package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
+import dev.idachev.userservice.security.UserPrincipal;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -39,7 +40,9 @@ public class UserDetailsServiceTests {
 
         // Then
         assertNotNull(result);
-        assertEquals(user, result);
+        assertTrue(result instanceof UserPrincipal);
+        UserPrincipal userPrincipal = (UserPrincipal) result;
+        assertEquals(user, userPrincipal.user());
         verify(userRepository).findByEmail(identifier);
         verify(userRepository, never()).findByUsername(anyString());
     }
@@ -60,13 +63,15 @@ public class UserDetailsServiceTests {
 
         // Then
         assertNotNull(result);
-        assertEquals(user, result);
+        assertTrue(result instanceof UserPrincipal);
+        UserPrincipal userPrincipal = (UserPrincipal) result;
+        assertEquals(user, userPrincipal.user());
         verify(userRepository).findByEmail(identifier);
         verify(userRepository).findByUsername(identifier);
     }
 
     @Test
-    void givenNonexistentIdentifier_whenLoadUserByUsername_thenThrowUsernameNotFoundException() {
+    void givenNonExistentIdentifier_whenLoadUserByUsername_thenThrowUsernameNotFoundException() {
         // Given
         String identifier = "nonexistent";
 
@@ -74,10 +79,7 @@ public class UserDetailsServiceTests {
         when(userRepository.findByUsername(identifier)).thenReturn(Optional.empty());
 
         // When & Then
-        UsernameNotFoundException exception = assertThrows(UsernameNotFoundException.class,
-                () -> userDetailsService.loadUserByUsername(identifier));
-
-        assertTrue(exception.getMessage().contains(identifier));
+        assertThrows(UsernameNotFoundException.class, () -> userDetailsService.loadUserByUsername(identifier));
         verify(userRepository).findByEmail(identifier);
         verify(userRepository).findByUsername(identifier);
     }

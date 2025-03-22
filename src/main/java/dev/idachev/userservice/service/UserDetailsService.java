@@ -1,6 +1,7 @@
 package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.repository.UserRepository;
+import dev.idachev.userservice.security.UserPrincipal;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -31,6 +32,7 @@ public class UserDetailsService implements org.springframework.security.core.use
                     log.debug("User not found by email, trying by username: {}", userIdentifier);
                     return userRepository.findByUsername(userIdentifier);
                 })
+                .map(UserPrincipal::new) // Wrap the User entity in UserPrincipal
                 .orElseThrow(() -> {
                     log.warn("User not found with email or username: {}", userIdentifier);
                     return new UsernameNotFoundException("User not found with email or username: " + userIdentifier);

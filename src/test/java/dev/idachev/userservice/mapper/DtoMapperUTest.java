@@ -1,5 +1,6 @@
 package dev.idachev.userservice.mapper;
 
+import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.web.dto.*;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,21 +21,24 @@ public class DtoMapperUTest {
     private String testMessage;
     private int testStatus;
     private LocalDateTime testDate;
+    private UUID testId;
 
     @BeforeEach
     void setUp() {
-        testDate = LocalDateTime.now();
-        testToken = UUID.randomUUID().toString();
+        testToken = "test.jwt.token";
         testMessage = "Test message";
         testStatus = 200;
+        testDate = LocalDateTime.now();
+        testId = UUID.randomUUID();
 
         testUser = User.builder()
-                .id(UUID.randomUUID())
+                .id(testId)
                 .username("testUser")
                 .email("test@example.com")
                 .password("encoded_password")
                 .enabled(true)
                 .verificationToken(null) // No verification pending
+                .role(Role.USER)
                 .createdOn(LocalDateTime.now().minusDays(1))
                 .updatedOn(LocalDateTime.now().minusHours(1))
                 .lastLogin(testDate)
@@ -49,10 +53,13 @@ public class DtoMapperUTest {
 
         // Then
         assertNotNull(response);
+        assertEquals(testId, response.getId());
         assertEquals(testUser.getUsername(), response.getUsername());
         assertEquals(testUser.getEmail(), response.getEmail());
         assertTrue(response.isVerified());
         assertFalse(response.isVerificationPending());
+        assertEquals("USER", response.getRole());
+        assertEquals(testUser.getCreatedOn(), response.getCreatedOn());
         assertEquals(testUser.getLastLogin(), response.getLastLogin());
     }
 

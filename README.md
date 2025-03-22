@@ -17,7 +17,7 @@ User authentication and account management microservice for the SavorAI platform
   
 - **Security**
   - JWT-based authentication
-  - Role-based access control
+  - Role-based access control (USER and ADMIN roles)
   - Secure password hashing
   - Protection against common attacks
   
@@ -193,3 +193,43 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request 
+
+## Code Architecture
+
+### User Authentication Refactoring
+
+The codebase has been refactored to better separate the domain model from the security concerns:
+
+1. The `User` entity no longer implements Spring Security's `UserDetails` interface
+2. A new `UserPrincipal` adapter class was introduced that:
+   - Implements `UserDetails`
+   - Wraps the `User` entity
+   - Delegates security-related methods to the underlying User entity
+
+This separation of concerns provides several benefits:
+- Cleaner domain model that focuses on business logic
+- Easier to change security implementation without affecting the core model
+- Better testability of both security and domain logic
+
+### Role-Based Access Control
+
+The application implements role-based access control with two primary roles:
+
+1. **USER** - Regular application users with standard privileges
+2. **ADMIN** - Administrative users with elevated privileges
+
+Roles are stored in the `User` entity and converted to Spring Security authorities by the `UserPrincipal` class. This allows for:
+
+- Declarative security using `@PreAuthorize` annotations
+- Method-level security checks
+- URL pattern-based access restrictions
+
+The design makes it easy to add additional roles or fine-grained permissions in the future.
+
+### Classes affected by the refactoring:
+- `User` - No longer implements UserDetails, now includes a role field
+- `Role` - New enum defining available user roles
+- `UserPrincipal` - New adapter class that implements UserDetails and wraps User
+- `UserDetailsService` - Updated to return UserPrincipal instances
+- `AuthenticationService` - Updated to work with UserPrincipal instead of User
+- `JwtConfig` - Updated to handle UserPrincipal for token generation 

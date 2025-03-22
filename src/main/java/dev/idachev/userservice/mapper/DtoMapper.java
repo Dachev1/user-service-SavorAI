@@ -5,10 +5,8 @@ import dev.idachev.userservice.web.dto.*;
 import lombok.experimental.UtilityClass;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
-/**
- * Utility class for mapping domain entities to DTOs
- */
 @UtilityClass
 public final class DtoMapper {
 
@@ -20,15 +18,16 @@ public final class DtoMapper {
      * @throws IllegalArgumentException if user is null
      */
     public static UserResponse mapToUserResponse(User user) {
-        if (user == null) {
-            throw new IllegalArgumentException("Cannot map null user to UserResponse");
-        }
+        validateUser(user, "Cannot map null user to UserResponse");
 
         return UserResponse.builder()
+                .id(user.getId())
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .verified(user.isEnabled())
                 .verificationPending(user.isVerificationPending())
+                .role(user.getRole().name())
+                .createdOn(user.getCreatedOn())
                 .lastLogin(user.getLastLogin())
                 .build();
     }
@@ -42,12 +41,10 @@ public final class DtoMapper {
      * @throws IllegalArgumentException if user is null
      */
     public static AuthResponse mapToAuthResponse(User user, String token) {
-        if (user == null) {
-            throw new IllegalArgumentException("Cannot map null user to AuthResponse");
-        }
+        validateUser(user, "Cannot map null user to AuthResponse");
 
         return AuthResponse.builder()
-                .token(token != null ? token : "")
+                .token(Optional.ofNullable(token).orElse(""))
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .verified(user.isEnabled())
@@ -79,7 +76,7 @@ public final class DtoMapper {
                 .verificationPending(user.isVerificationPending())
                 .lastLogin(user.getLastLogin())
                 .success(success)
-                .message(message != null ? message : "")
+                .message(getNonNullMessage(message))
                 .build();
     }
 
@@ -93,7 +90,7 @@ public final class DtoMapper {
     public static AuthResponse mapToAuthResponse(boolean success, String message) {
         return AuthResponse.builder()
                 .success(success)
-                .message(message != null ? message : "")
+                .message(getNonNullMessage(message))
                 .build();
     }
 
@@ -108,7 +105,7 @@ public final class DtoMapper {
     public static VerificationResponse mapToVerificationResponse(User user, boolean success, String message) {
         return VerificationResponse.builder()
                 .success(success)
-                .message(message != null ? message : "")
+                .message(getNonNullMessage(message))
                 .data(user != null ? mapToUserResponse(user) : null)
                 .timestamp(LocalDateTime.now())
                 .build();
@@ -139,7 +136,7 @@ public final class DtoMapper {
     public static GenericResponse mapToGenericResponse(int status, String message) {
         return GenericResponse.builder()
                 .status(status)
-                .message(message != null ? message : "")
+                .message(getNonNullMessage(message))
                 .timestamp(LocalDateTime.now())
                 .build();
     }
@@ -154,8 +151,24 @@ public final class DtoMapper {
     public static EmailVerificationResponse mapToEmailVerificationResponse(boolean success, String message) {
         return new EmailVerificationResponse(
                 success,
-                message != null ? message : "",
+                getNonNullMessage(message),
                 LocalDateTime.now()
         );
+    }
+
+    /**
+     * Validates that a user is not null
+     */
+    private static void validateUser(User user, String errorMessage) {
+        if (user == null) {
+            throw new IllegalArgumentException(errorMessage);
+        }
+    }
+
+    /**
+     * Returns a non-null message
+     */
+    private static String getNonNullMessage(String message) {
+        return message != null ? message : "";
     }
 } 

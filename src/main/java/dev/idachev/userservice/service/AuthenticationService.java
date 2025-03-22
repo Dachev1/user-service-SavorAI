@@ -6,6 +6,7 @@ import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.mapper.DtoMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
+import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.web.dto.AuthResponse;
 import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.LoginRequest;
@@ -66,13 +67,14 @@ public class AuthenticationService {
 
             // Authenticate user
             Authentication authentication = authenticate(request);
-            user = (User) authentication.getPrincipal();
+            UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+            user = userPrincipal.user();
 
             // Update user login status
             updateUserOnLogin(user);
 
             // Generate JWT token
-            String token = jwtConfig.generateToken(user);
+            String token = jwtConfig.generateToken(userPrincipal);
 
             log.info("User logged in: {}", user.getEmail());
             return DtoMapper.mapToAuthResponse(user, token);
@@ -96,27 +98,11 @@ public class AuthenticationService {
      */
     @Transactional
     public GenericResponse logout(String authHeader) {
-        boolean userLoggedOut = false;
+        boolean userLoggedOut = logoutAuthenticatedUser();
+        boolean tokenBlacklisted = blacklistToken(authHeader);
 
-        try {
-            // Attempt to log out user if authenticated
-            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-            if (authentication != null && isAuthenticatedUser(authentication)) {
-                User user = (User) authentication.getPrincipal();
-                user.setLoggedIn(false);
-                userRepository.save(user);
-                log.info("User logged out: {}", user.getEmail());
-                userLoggedOut = true;
-            }
-
-            // Extract and blacklist the token
-            boolean tokenBlacklisted = blacklistToken(authHeader);
-
-            if (!userLoggedOut && !tokenBlacklisted) {
-                log.info("Logout called but no active user session or valid token found");
-            }
-        } finally {
-            SecurityContextHolder.clearContext();
+        if (!userLoggedOut && !tokenBlacklisted) {
+            log.info("Logout called but no active user session or valid token found");
         }
 
         return GenericResponse.builder()
@@ -124,6 +110,30 @@ public class AuthenticationService {
                 .message("Logged out successfully")
                 .timestamp(LocalDateTime.now())
                 .build();
+    }
+
+    /**
+     * Logs out the currently authenticated user
+     *
+     * @return true if a user was logged out, false otherwise
+     */
+    private boolean logoutAuthenticatedUser() {
+        try {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (!isAuthenticatedUser(authentication)) {
+                return false;
+            }
+
+            UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+            User user = userPrincipal.user();
+            user.setLoggedIn(false);
+            userRepository.save(user);
+            log.info("User logged out: {}", user.getEmail());
+
+            return true;
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
     }
 
     /**
@@ -167,7 +177,12 @@ public class AuthenticationService {
      */
     public AuthResponse getVerificationStatus(String email) {
         User user = findUserByEmail(email);
-        String token = user.isEnabled() ? jwtConfig.generateToken(user) : "";
+        String token = "";
+
+        if (user.isEnabled()) {
+            UserPrincipal userPrincipal = new UserPrincipal(user);
+            token = jwtConfig.generateToken(userPrincipal);
+        }
 
         return DtoMapper.mapToAuthResponse(user, token);
     }
@@ -184,7 +199,8 @@ public class AuthenticationService {
             throw new AuthenticationException("User not authenticated");
         }
 
-        return (User) authentication.getPrincipal();
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        return userPrincipal.user();
     }
 
     /**
@@ -224,7 +240,7 @@ public class AuthenticationService {
         return Optional.ofNullable(authentication)
                 .filter(Authentication::isAuthenticated)
                 .map(Authentication::getPrincipal)
-                .filter(principal -> principal instanceof User)
+                .filter(principal -> principal instanceof UserPrincipal)
                 .isPresent();
     }
 } 

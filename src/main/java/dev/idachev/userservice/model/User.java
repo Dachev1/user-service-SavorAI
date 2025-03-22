@@ -2,18 +2,13 @@ package dev.idachev.userservice.model;
 
 import jakarta.persistence.*;
 import lombok.*;
-import org.springframework.security.core.GrantedAuthority;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.security.core.userdetails.UserDetails;
 
 import java.time.LocalDateTime;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.UUID;
 
 /**
  * User entity representing application users.
- * Implements UserDetails for Spring Security integration.
+ * No longer implements UserDetails for better separation of concerns.
  */
 @Entity
 @Table
@@ -22,7 +17,7 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class User implements UserDetails {
+public class User {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
@@ -43,11 +38,11 @@ public class User implements UserDetails {
     @Column
     private String verificationToken;
 
-    @Column
+    @Column(nullable = false, updatable = false)
     @Builder.Default
     private LocalDateTime createdOn = LocalDateTime.now();
 
-    @Column
+    @Column(nullable = false)
     @Builder.Default
     private LocalDateTime updatedOn = LocalDateTime.now();
 
@@ -58,20 +53,15 @@ public class User implements UserDetails {
     @Builder.Default
     private boolean loggedIn = false;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    @Builder.Default
+    private Role role = Role.USER;
 
-    @Override
-    public boolean isAccountNonExpired() {
-        return true;
-    }
-
-    @Override
-    public boolean isAccountNonLocked() {
-        return true;
-    }
-
-    @Override
-    public boolean isCredentialsNonExpired() {
-        return true;
+    @PrePersist
+    protected void onCreate() {
+        createdOn = LocalDateTime.now();
+        updatedOn = LocalDateTime.now();
     }
 
     @PreUpdate
@@ -85,10 +75,5 @@ public class User implements UserDetails {
 
     public boolean isVerificationPending() {
         return verificationToken != null && !verificationToken.isEmpty();
-    }
-
-    @Override
-    public Collection<? extends GrantedAuthority> getAuthorities() {
-        return Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"));
     }
 } 

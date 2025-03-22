@@ -30,15 +30,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
 
-    // More concise path patterns
+    // Paths that don't require authentication
     private static final List<String> PUBLIC_PATHS = Arrays.asList(
             "/api/v1/user/login",
             "/api/v1/user/register",
-            "/api/v1/user/verify",
-            "/api/v1/user/verify-email",
-            "/api/v1/user/verification-status",
-            "/css/", "/js/", "/images/", "/webjars/",
-            "/actuator/", "/favicon.ico"
+            "/api/v1/user/verify-email/",
+            "/api/v1/verification/",
+            "/swagger-ui/",
+            "/api-docs/",
+            "/v3/api-docs/",
+            "/css/", "/js/", "/images/",
+            "/actuator/",
+            "/favicon.ico"
     );
 
     private final JwtConfig jwtConfig;
@@ -58,10 +61,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        String path = request.getRequestURI();
-        return path.startsWith("/api/v1/user/verify/") ||
-                path.startsWith("/api/v1/user/verify-email/") ||
-                PUBLIC_PATHS.stream().anyMatch(path::startsWith);
+        String requestPath = request.getRequestURI();
+        return PUBLIC_PATHS.stream().anyMatch(requestPath::startsWith);
     }
 
     @Override
@@ -71,17 +72,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
         try {
-            String jwt = getJwtFromRequest(request);
+            String jwtToken = getJwtFromRequest(request);
 
-            if (StringUtils.hasText(jwt)) {
-                // Check if token is blacklisted before any other validation
-                if (tokenBlacklistService.isBlacklisted(jwt)) {
-                    logger.warn("Rejected blacklisted token");
-                    // Continue with filter chain - security context remains null
-                } else if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                    // Only proceed with token validation if not already authenticated
-                    processValidToken(jwt, request);
-                }
+            if (StringUtils.hasText(jwtToken) && isValidForAuthentication(jwtToken)) {
+                authenticateWithToken(jwtToken, request);
             }
         } catch (Exception e) {
             logger.error("Cannot set user authentication: {}", e.getMessage());
@@ -91,20 +85,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Process a potentially valid token
+     * Checks if a token is valid for authentication
      */
-    private void processValidToken(String jwt, HttpServletRequest request) {
+    private boolean isValidForAuthentication(String token) {
+        // Already authenticated or token is blacklisted
+        return !tokenBlacklistService.isBlacklisted(token) &&
+                SecurityContextHolder.getContext().getAuthentication() == null;
+    }
+
+    /**
+     * Authenticates a user with a valid JWT token
+     */
+    private void authenticateWithToken(String jwtToken, HttpServletRequest request) {
         try {
-            String username = jwtConfig.extractUsername(jwt);
+            String username = jwtConfig.extractUsername(jwtToken);
 
             if (username != null) {
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
 
-                if (jwtConfig.validateToken(jwt, userDetails)) {
-                    UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                if (jwtConfig.validateToken(jwtToken, userDetails)) {
+                    UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
                             userDetails, null, userDetails.getAuthorities());
-                    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                    SecurityContextHolder.getContext().setAuthentication(auth);
+                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
                     logger.debug("Authenticated user: {}", username);
                 }
             }

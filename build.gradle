@@ -1,14 +1,16 @@
+// Basic project configuration
 plugins {
     id 'java'
-    id 'org.springframework.boot' version '3.2.2'
+    id 'org.springframework.boot' version '3.4.0'
     id 'io.spring.dependency-management' version '1.1.4'
     id 'com.github.ben-manes.versions' version '0.50.0'
-    id 'org.owasp.dependencycheck' version '9.0.8'
 }
 
+// Project identification
 group = 'dev.idachev'
 version = '0.0.1-SNAPSHOT'
 
+// Java configuration
 java {
     sourceCompatibility = '17'
     toolchain {
@@ -16,19 +18,12 @@ java {
     }
 }
 
-configurations {
-    compileOnly {
-        extendsFrom annotationProcessor
-    }
-    configureEach {
-        resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
-    }
-}
-
+// Repository configuration
 repositories {
     mavenCentral()
 }
 
+// Version constants
 ext {
     springdocVersion = '2.3.0'
     jjwtVersion = '0.11.5'
@@ -37,7 +32,7 @@ ext {
 }
 
 dependencies {
-    // Spring Boot core dependencies
+    // Spring Boot core
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-security'
@@ -45,19 +40,19 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
-    
+
     // API Documentation
     implementation "org.springdoc:springdoc-openapi-starter-webmvc-ui:${springdocVersion}"
     implementation "org.springdoc:springdoc-openapi-starter-common:${springdocVersion}"
-    
+
     // Utilities
     implementation "me.paulschwarz:spring-dotenv:${dotenvVersion}"
-    
+
     // JWT Support
     implementation "io.jsonwebtoken:jjwt-api:${jjwtVersion}"
     runtimeOnly "io.jsonwebtoken:jjwt-impl:${jjwtVersion}"
     runtimeOnly "io.jsonwebtoken:jjwt-jackson:${jjwtVersion}"
-    
+
     // Database
     runtimeOnly 'com.mysql:mysql-connector-j'
 
@@ -73,10 +68,12 @@ dependencies {
     testImplementation 'org.springframework.security:spring-security-test'
 }
 
+// Test configuration
 tasks.named('test') {
     useJUnitPlatform()
 }
 
+// Dependency updates configuration
 tasks.named('dependencyUpdates').configure {
     checkForGradleUpdate = true
     outputFormatter = 'html'
@@ -84,10 +81,12 @@ tasks.named('dependencyUpdates').configure {
     reportfileName = 'report'
 }
 
+// Build information
 springBoot {
     buildInfo()
 }
 
+// Java compiler options
 tasks.withType(JavaCompile) {
     options.compilerArgs += ['-parameters']
     options.encoding = 'UTF-8'

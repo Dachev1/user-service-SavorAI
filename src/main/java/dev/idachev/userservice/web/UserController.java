@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -38,7 +39,10 @@ public class UserController {
      * @return Auth response with JWT token and verification status
      */
     @PostMapping("/register")
-    @Operation(summary = "Register new user", description = "Creates a new user account and sends verification email")
+    @Operation(
+            summary = "Register new user",
+            description = "Creates a new user account and sends verification email"
+    )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "201", description = "User registered successfully"),
             @ApiResponse(responseCode = "400", description = "Invalid input data",
@@ -48,7 +52,8 @@ public class UserController {
     })
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
         log.info("Registration request received for email: {}", request.getEmail());
-        return ResponseEntity.status(HttpStatus.CREATED).body(userService.register(request));
+        AuthResponse response = userService.register(request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     /**
@@ -58,7 +63,10 @@ public class UserController {
      * @return Auth response with JWT token
      */
     @PostMapping("/login")
-    @Operation(summary = "Authenticate user", description = "Validates credentials and returns JWT token")
+    @Operation(
+            summary = "Authenticate user",
+            description = "Validates credentials and returns JWT token"
+    )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Authentication successful"),
             @ApiResponse(responseCode = "400", description = "Invalid input or already logged in",
@@ -68,11 +76,21 @@ public class UserController {
     })
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         log.info("Login request received for email: {}", request.getEmail());
-        return ResponseEntity.ok(authenticationService.login(request));
+        AuthResponse response = authenticationService.login(request);
+        return ResponseEntity.ok(response);
     }
 
+    /**
+     * Returns information about the currently authenticated user
+     *
+     * @return User information as a DTO
+     */
     @GetMapping("/current-user")
-    @Operation(summary = "Get current user", description = "Returns information about the currently authenticated user")
+    @Operation(
+            summary = "Get current user",
+            description = "Returns information about the currently authenticated user",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "User information retrieved"),
             @ApiResponse(responseCode = "401", description = "User not authenticated",
@@ -80,16 +98,28 @@ public class UserController {
     })
     public ResponseEntity<UserResponse> getCurrentUser() {
         log.debug("Current user information requested");
-        return ResponseEntity.ok(authenticationService.getCurrentUserInfo());
+        UserResponse response = authenticationService.getCurrentUserInfo();
+        return ResponseEntity.ok(response);
     }
 
+    /**
+     * Logs out the current user and invalidates their session
+     *
+     * @param token JWT token from Authorization header
+     * @return Confirmation of successful logout
+     */
     @PostMapping("/logout")
-    @Operation(summary = "Logout user", description = "Logs out the current user and invalidates session")
+    @Operation(
+            summary = "Logout user",
+            description = "Logs out the current user and invalidates session",
+            security = @SecurityRequirement(name = "bearerAuth")
+    )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Successfully logged out")
     })
     public ResponseEntity<GenericResponse> logout(@RequestHeader("Authorization") String token) {
         log.info("Logout request received");
-        return ResponseEntity.ok(authenticationService.logout(token));
+        GenericResponse response = authenticationService.logout(token);
+        return ResponseEntity.ok(response);
     }
 } 
