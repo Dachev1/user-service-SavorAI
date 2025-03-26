@@ -28,11 +28,6 @@ public class ViewController {
         this.userService = userService;
     }
 
-    /**
-     * Handles the case when no token is provided
-     *
-     * @return Redirect to frontend login page with error status
-     */
     @GetMapping("/api/v1/user/verify-email/")
     @Operation(summary = "Handle missing token",
             description = "Handles case when no verification token is provided and redirects to login page")
@@ -45,12 +40,6 @@ public class ViewController {
         return new RedirectView("http://localhost:5173/login?verified=false&message=" + message);
     }
 
-    /**
-     * Verifies email token and redirects to frontend login page
-     *
-     * @param token Verification token
-     * @return Redirect to frontend login page with verification status
-     */
     @GetMapping("/api/v1/user/verify-email/{token}")
     @Operation(summary = "Verify email with frontend redirect",
             description = "Verifies email token and redirects to frontend login page")

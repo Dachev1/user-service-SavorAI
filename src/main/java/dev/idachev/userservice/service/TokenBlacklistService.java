@@ -100,7 +100,7 @@ public class TokenBlacklistService {
             // but still limit the number of tokens processed per run
             int[] processCounter = {0};
             int maxToProcess = (int) Math.min(cleanupBatchSize, beforeSize);
-            
+
             blacklistedTokens.entrySet().removeIf(entry -> {
                 if (processCounter[0] >= maxToProcess) {
                     return false;

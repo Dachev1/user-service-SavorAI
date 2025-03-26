@@ -6,10 +6,7 @@ import lombok.*;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
-/**
- * User entity representing application users.
- * No longer implements UserDetails for better separation of concerns.
- */
+
 @Entity
 @Table
 @Getter

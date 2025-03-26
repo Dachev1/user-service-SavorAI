@@ -42,9 +42,6 @@ public class VerificationController {
         this.authenticationService = authenticationService;
     }
 
-    /**
-     * Checks user verification status
-     */
     @GetMapping("/status")
     @Operation(summary = "Check verification status", description = "Returns verification status for a user email")
     @ApiResponses(value = {
@@ -60,9 +57,6 @@ public class VerificationController {
         return ResponseEntity.ok(authenticationService.getVerificationStatus(email));
     }
 
-    /**
-     * Resends verification email
-     */
     @PostMapping("/resend")
     @Operation(summary = "Resend verification email", description = "Sends a new verification email to the user")
     @ApiResponses(value = {
@@ -77,9 +71,6 @@ public class VerificationController {
         return ResponseEntity.ok(userService.resendVerificationEmailWithResponse(request.getEmail()));
     }
 
-    /**
-     * Verifies user email with token and redirects to login page
-     */
     @GetMapping("/verify/{token}")
     @Operation(summary = "Verify email", description = "Verifies user email using token and redirects to login page")
     @ApiResponses(value = {
@@ -99,9 +90,6 @@ public class VerificationController {
         return new RedirectView(loginUrl + "?verified=true");
     }
 
-    /**
-     * API endpoint to verify user email without redirect (for programmatic use)
-     */
     @PostMapping("/verify")
     @Operation(summary = "Verify email via API", description = "Verifies user email using token and returns verification response")
     @ApiResponses(value = {

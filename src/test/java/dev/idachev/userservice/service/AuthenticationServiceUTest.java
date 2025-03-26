@@ -73,7 +73,10 @@ public class AuthenticationServiceUTest {
         // Given
         String email = "test@example.com";
         String password = "password";
-        LoginRequest request = new LoginRequest(email, password);
+        LoginRequest request = LoginRequest.builder()
+                .identifier(email)
+                .password(password)
+                .build();
 
         User user = User.builder()
                 .email(email)
@@ -106,7 +109,10 @@ public class AuthenticationServiceUTest {
 
         // Given
         String nonExistentEmail = "nonexistent@example.com";
-        LoginRequest request = new LoginRequest(nonExistentEmail, "password");
+        LoginRequest request = LoginRequest.builder()
+                .identifier(nonExistentEmail)
+                .password("password")
+                .build();
 
         when(userRepository.findByEmail(nonExistentEmail)).thenReturn(Optional.empty());
 
@@ -119,7 +125,10 @@ public class AuthenticationServiceUTest {
 
         // Given
         String email = "test@example.com";
-        LoginRequest request = new LoginRequest(email, "password");
+        LoginRequest request = LoginRequest.builder()
+                .identifier(email)
+                .password("password")
+                .build();
 
         User user = User.builder()
                 .email(email)
@@ -138,7 +147,10 @@ public class AuthenticationServiceUTest {
 
         // Given
         String email = "test@example.com";
-        LoginRequest request = new LoginRequest(email, "password");
+        LoginRequest request = LoginRequest.builder()
+                .identifier(email)
+                .password("password")
+                .build();
 
         User user = User.builder()
                 .email(email)
@@ -157,7 +169,10 @@ public class AuthenticationServiceUTest {
         // Given
         String email = "test@example.com";
         String password = "wrong_password";
-        LoginRequest request = new LoginRequest(email, password);
+        LoginRequest request = LoginRequest.builder()
+                .identifier(email)
+                .password(password)
+                .build();
 
         User user = User.builder()
                 .email(email)

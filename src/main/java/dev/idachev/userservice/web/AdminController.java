@@ -34,11 +34,6 @@ public class AdminController {
         this.userService = userService;
     }
 
-    /**
-     * Get a list of all users in the system
-     *
-     * @return List of users
-     */
     @GetMapping("/users")
     @Operation(summary = "Get all users", description = "Retrieves a list of all registered users")
     @ApiResponses(value = {
@@ -51,13 +46,6 @@ public class AdminController {
         return ResponseEntity.ok(userService.getAllUsers());
     }
 
-    /**
-     * Set a user's role (promote to ADMIN or demote to USER)
-     *
-     * @param userId User ID
-     * @param role   Role to set
-     * @return Response with status
-     */
     @PutMapping("/users/{userId}/role")
     @Operation(summary = "Set user role", description = "Updates a user's role (ADMIN or USER)")
     @ApiResponses(value = {

@@ -23,19 +23,25 @@ public class UserDetailsService implements org.springframework.security.core.use
     @Override
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String userIdentifier) throws UsernameNotFoundException {
-
         log.debug("Loading user by identifier: {}", userIdentifier);
 
-        // First try by email, then by username if not found
-        return userRepository.findByEmail(userIdentifier)
-                .or(() -> {
-                    log.debug("User not found by email, trying by username: {}", userIdentifier);
-                    return userRepository.findByUsername(userIdentifier);
-                })
-                .map(UserPrincipal::new) // Wrap the User entity in UserPrincipal
-                .orElseThrow(() -> {
-                    log.warn("User not found with email or username: {}", userIdentifier);
-                    return new UsernameNotFoundException("User not found with email or username: " + userIdentifier);
-                });
+        // Try to determine if this is an email (contains @) or username
+        if (userIdentifier.contains("@")) {
+            // This looks like an email
+            return userRepository.findByEmail(userIdentifier)
+                    .map(UserPrincipal::new)
+                    .orElseThrow(() -> {
+                        log.warn("User not found with email: {}", userIdentifier);
+                        return new UsernameNotFoundException("User not found with email: " + userIdentifier);
+                    });
+        } else {
+            // This looks like a username
+            return userRepository.findByUsername(userIdentifier)
+                    .map(UserPrincipal::new)
+                    .orElseThrow(() -> {
+                        log.warn("User not found with username: {}", userIdentifier);
+                        return new UsernameNotFoundException("User not found with username: " + userIdentifier);
+                    });
+        }
     }
 } 

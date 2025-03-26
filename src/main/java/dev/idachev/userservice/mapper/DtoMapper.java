@@ -43,15 +43,19 @@ public final class DtoMapper {
     public static AuthResponse mapToAuthResponse(User user, String token) {
         validateUser(user, "Cannot map null user to AuthResponse");
 
+        UserResponse userResponse = mapToUserResponse(user);
+
         return AuthResponse.builder()
                 .token(Optional.ofNullable(token).orElse(""))
                 .username(user.getUsername())
                 .email(user.getEmail())
+                .role(user.getRole().name())
                 .verified(user.isEnabled())
                 .verificationPending(user.isVerificationPending())
                 .lastLogin(user.getLastLogin())
                 .success(true)
                 .message("")
+                .user(userResponse)
                 .build();
     }
 

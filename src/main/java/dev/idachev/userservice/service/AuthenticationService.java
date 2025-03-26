@@ -32,14 +32,20 @@ import java.util.Optional;
 public class AuthenticationService {
 
     private final UserRepository userRepository;
+    private final UserService userService;
     private final JwtConfig jwtConfig;
     private final AuthenticationManager authenticationManager;
     private final TokenBlacklistService tokenBlacklistService;
 
     @Autowired
-    public AuthenticationService(UserRepository userRepository, JwtConfig jwtConfig, AuthenticationManager authenticationManager,
-                                 TokenBlacklistService tokenBlacklistService) {
+    public AuthenticationService(
+            UserRepository userRepository,
+            UserService userService,
+            JwtConfig jwtConfig,
+            AuthenticationManager authenticationManager,
+            TokenBlacklistService tokenBlacklistService) {
         this.userRepository = userRepository;
+        this.userService = userService;
         this.jwtConfig = jwtConfig;
         this.authenticationManager = authenticationManager;
         this.tokenBlacklistService = tokenBlacklistService;
@@ -54,7 +60,7 @@ public class AuthenticationService {
     @Transactional
     public AuthResponse login(LoginRequest request) {
         try {
-            User user = findUserByEmail(request.getEmail());
+            User user = userService.findByUsernameOrEmail(request.getIdentifier());
 
             if (user.isLoggedIn()) {
                 log.warn("User {} attempted to log in while already logged in", user.getEmail());
@@ -82,7 +88,7 @@ public class AuthenticationService {
             // Re-throw original exception to keep test behavior
             throw e;
         } catch (BadCredentialsException e) {
-            log.error("Login failed: Invalid credentials for {}", request.getEmail());
+            log.error("Login failed: Invalid credentials for {}", request.getIdentifier());
             throw e;
         } catch (Exception e) {
             log.error("Login failed: {}", e.getMessage());
@@ -98,7 +104,33 @@ public class AuthenticationService {
      */
     @Transactional
     public GenericResponse logout(String authHeader) {
-        boolean userLoggedOut = logoutAuthenticatedUser();
+        boolean userLoggedOutFromContext = logoutAuthenticatedUser();
+        boolean userLoggedOut = userLoggedOutFromContext;
+
+        // If no user was found in the security context, try to extract user from token
+        if (!userLoggedOutFromContext && authHeader != null && authHeader.startsWith("Bearer ")) {
+            try {
+                String jwtToken = authHeader.substring(7);
+                String username = jwtConfig.extractUsername(jwtToken);
+
+                if (username != null && !username.isEmpty()) {
+                    log.info("Attempting to logout user from token: {}", username);
+                    Optional<User> userOpt = userRepository.findByUsername(username)
+                            .or(() -> userRepository.findByEmail(username));
+
+                    if (userOpt.isPresent()) {
+                        User user = userOpt.get();
+                        user.setLoggedIn(false);
+                        userRepository.save(user);
+                        log.info("User logged out via token: {}", user.getEmail());
+                        userLoggedOut = true;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to extract user from token: {}", e.getMessage());
+            }
+        }
+
         boolean tokenBlacklisted = blacklistToken(authHeader);
 
         if (!userLoggedOut && !tokenBlacklisted) {
@@ -172,11 +204,11 @@ public class AuthenticationService {
     /**
      * Gets verification status for a user
      *
-     * @param email User's email
+     * @param identifier User's email or username
      * @return AuthResponse with verification status
      */
-    public AuthResponse getVerificationStatus(String email) {
-        User user = findUserByEmail(email);
+    public AuthResponse getVerificationStatus(String identifier) {
+        User user = userService.findByUsernameOrEmail(identifier);
         String token = "";
 
         if (user.isEnabled()) {
@@ -213,15 +245,29 @@ public class AuthenticationService {
         return DtoMapper.mapToUserResponse(user);
     }
 
-    private User findUserByEmail(String email) {
-        return userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
+    /**
+     * Gets user information as a DTO, optionally by username or email
+     *
+     * @param identifier Optional username or email to look up specific user
+     * @return UserResponse DTO
+     */
+    public UserResponse getCurrentUserInfo(String identifier) {
+        if (identifier == null || identifier.isEmpty()) {
+            return getCurrentUserInfo();
+        }
+
+        User user = userService.findByUsernameOrEmail(identifier);
+        return DtoMapper.mapToUserResponse(user);
     }
 
     private Authentication authenticate(LoginRequest request) {
+        if (request.getIdentifier() == null || request.getIdentifier().isEmpty()) {
+            throw new IllegalArgumentException("Username or email cannot be empty");
+        }
+
         Authentication auth = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
-                        request.getEmail(),
+                        request.getIdentifier(),
                         request.getPassword()
                 )
         );

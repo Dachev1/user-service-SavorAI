@@ -23,6 +23,9 @@ public class AuthResponse {
     @Schema(description = "User's email address", example = "john.doe@example.com")
     private String email;
     
+    @Schema(description = "User's role", example = "USER")
+    private String role;
+    
     @Schema(description = "Whether the user's email is verified", example = "true")
     private boolean verified;
     
@@ -37,4 +40,7 @@ public class AuthResponse {
     
     @Schema(description = "Response message, can contain success or error details")
     private String message;
+    
+    @Schema(description = "User object that matches frontend expectations")
+    private UserResponse user;
 } 

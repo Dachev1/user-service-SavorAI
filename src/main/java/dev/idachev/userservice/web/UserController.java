@@ -32,12 +32,6 @@ public class UserController {
         this.authenticationService = authenticationService;
     }
 
-    /**
-     * Registers a new user
-     *
-     * @param request User registration details
-     * @return Auth response with JWT token and verification status
-     */
     @PostMapping("/register")
     @Operation(
             summary = "Register new user",
@@ -56,16 +50,10 @@ public class UserController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    /**
-     * Authenticates a user
-     *
-     * @param request Login credentials
-     * @return Auth response with JWT token
-     */
     @PostMapping("/login")
     @Operation(
             summary = "Authenticate user",
-            description = "Validates credentials and returns JWT token"
+            description = "Validates credentials and returns JWT token. Supports login with either username or email."
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Authentication successful"),
@@ -75,20 +63,15 @@ public class UserController {
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        log.info("Login request received for email: {}", request.getEmail());
+        log.info("Login request received for user: {}", request.getIdentifier());
         AuthResponse response = authenticationService.login(request);
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Returns information about the currently authenticated user
-     *
-     * @return User information as a DTO
-     */
     @GetMapping("/current-user")
     @Operation(
             summary = "Get current user",
-            description = "Returns information about the currently authenticated user",
+            description = "Returns information about the currently authenticated user. Supports optional lookup by username or email via the identifier or username parameter.",
             security = @SecurityRequirement(name = "bearerAuth")
     )
     @ApiResponses(value = {
@@ -96,18 +79,15 @@ public class UserController {
             @ApiResponse(responseCode = "401", description = "User not authenticated",
                     content = @Content(schema = @Schema(implementation = ErrorResponse.class)))
     })
-    public ResponseEntity<UserResponse> getCurrentUser() {
-        log.debug("Current user information requested");
-        UserResponse response = authenticationService.getCurrentUserInfo();
+    public ResponseEntity<UserResponse> getCurrentUser(@RequestParam(required = false) String identifier,
+                                                       @RequestParam(required = false) String username) {
+        // Use the username parameter if provided, otherwise fall back to identifier
+        String effectiveIdentifier = username != null ? username : identifier;
+        log.debug("Current user information requested{}", effectiveIdentifier != null ? " for identifier: " + effectiveIdentifier : "");
+        UserResponse response = authenticationService.getCurrentUserInfo(effectiveIdentifier);
         return ResponseEntity.ok(response);
     }
 
-    /**
-     * Logs out the current user and invalidates their session
-     *
-     * @param token JWT token from Authorization header
-     * @return Confirmation of successful logout
-     */
     @PostMapping("/logout")
     @Operation(
             summary = "Logout user",
@@ -118,7 +98,8 @@ public class UserController {
             @ApiResponse(responseCode = "200", description = "Successfully logged out")
     })
     public ResponseEntity<GenericResponse> logout(@RequestHeader("Authorization") String token) {
-        log.info("Logout request received");
+        log.info("Logout request received with token: {}",
+                token != null ? (token.length() > 10 ? token.substring(0, 10) + "..." : token) : "null");
         GenericResponse response = authenticationService.logout(token);
         return ResponseEntity.ok(response);
     }
