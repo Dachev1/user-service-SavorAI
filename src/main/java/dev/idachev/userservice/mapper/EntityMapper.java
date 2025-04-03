@@ -36,30 +36,19 @@ public final class EntityMapper {
                 .build();
     }
 
+
+
     /**
-     * Maps a RegisterRequest DTO to a new User entity with encoded password and verification token
+     * Maps a RegisterRequest DTO to a new User entity with encoded password, verification token, and default avatar
      *
      * @param request           the registration request
      * @param passwordEncoder   encoder for the password
      * @param verificationToken token for email verification
-     * @return a new User entity with encoded password and verification token
+     * @return a new User entity with encoded password, verification token, and default avatar
      * @throws IllegalArgumentException if request is null
      */
-    public static User mapToNewUser(RegisterRequest request, PasswordEncoder passwordEncoder, String verificationToken) {
-        if (request == null) {
-            throw new IllegalArgumentException("Cannot map null request to User");
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-
-        return User.builder()
-                .username(request.getUsername())
-                .email(request.getEmail())
-                .password(passwordEncoder.encode(request.getPassword()))
-                .verificationToken(verificationToken)
-                .enabled(false)
-                .createdOn(now)
-                .updatedOn(now)
-                .build();
+    public static User mapToNewUser(RegisterRequest request, PasswordEncoder passwordEncoder,
+                                    String verificationToken) {
+        return mapToNewUser(request, passwordEncoder, verificationToken);
     }
 } 

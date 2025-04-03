@@ -1,16 +1,15 @@
 package dev.idachev.userservice.service;
 
-import dev.idachev.userservice.config.JwtConfig;
 import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
+import dev.idachev.userservice.mapper.EntityMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.web.dto.AuthResponse;
 import dev.idachev.userservice.web.dto.GenericResponse;
-import dev.idachev.userservice.web.dto.LoginRequest;
-import dev.idachev.userservice.web.dto.UserResponse;
-import io.jsonwebtoken.ExpiredJwtException;
+import dev.idachev.userservice.web.dto.RegisterRequest;
+import dev.idachev.userservice.web.dto.SignInRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,13 +23,17 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
-import java.util.Date;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,26 +43,63 @@ public class AuthenticationServiceUTest {
     private UserRepository userRepository;
 
     @Mock
-    private JwtConfig jwtConfig;
-
-    @Mock
     private AuthenticationManager authenticationManager;
 
     @Mock
-    private TokenBlacklistService tokenBlacklistService;
+    private TokenService tokenService;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
+    @Mock
+    private EmailService emailService;
+
+    @Mock
+    private dev.idachev.userservice.service.UserDetailsService userDetailsService;
 
     @Mock
     private Authentication authentication;
-
     @Mock
     private SecurityContext securityContext;
 
     @InjectMocks
     private AuthenticationService authenticationService;
 
+    private User testUser;
+    private RegisterRequest validRegisterRequest;
+    private SignInRequest signInRequest;
+    private String testToken;
+
     @BeforeEach
     void setUp() {
         SecurityContextHolder.setContext(securityContext);
+
+        testUser = User.builder()
+                .id(UUID.randomUUID())
+                .username("testuser")
+                .email("test@example.com")
+                .password("encoded_password")
+                .enabled(true) // Assume enabled for sign-in tests
+                .createdOn(LocalDateTime.now())
+                .updatedOn(LocalDateTime.now())
+                .build();
+
+        validRegisterRequest = RegisterRequest.builder()
+                .username("testuser")
+                .email("test@example.com")
+                .password("password123")
+                .build();
+
+        signInRequest = SignInRequest.builder()
+                .identifier("testuser")
+                .password("password123")
+                .build();
+
+        testToken = "test.jwt.token";
+
+        // Mocks for dependencies
+        lenient().when(passwordEncoder.encode(anyString())).thenReturn("encoded_password");
+        lenient().when(emailService.generateVerificationToken()).thenReturn(UUID.randomUUID().toString());
     }
 
     @AfterEach
@@ -68,385 +108,231 @@ public class AuthenticationServiceUTest {
     }
 
     @Test
-    void givenValidCredentials_whenLogin_thenReturnAuthResponseWithToken() {
-
+    void givenValidCredentials_whenSignIn_thenReturnAuthResponseWithToken() {
         // Given
-        String email = "test@example.com";
-        String password = "password";
-        LoginRequest request = LoginRequest.builder()
-                .identifier(email)
-                .password(password)
-                .build();
-
-        User user = User.builder()
-                .email(email)
-                .enabled(true)
-                .build();
-
-        UserPrincipal userPrincipal = new UserPrincipal(user);
-        String token = "valid.jwt.token";
-
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
-        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
-                .thenReturn(authentication);
-        when(authentication.getPrincipal()).thenReturn(userPrincipal);
-        when(jwtConfig.generateToken(userPrincipal)).thenReturn(token);
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(testUser));
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class))).thenReturn(authentication);
+        when(authentication.getPrincipal()).thenReturn(new UserPrincipal(testUser));
+        when(tokenService.generateToken(any(UserDetails.class))).thenReturn(testToken);
 
         // When
-        AuthResponse response = authenticationService.login(request);
+        AuthResponse response = authenticationService.signIn(signInRequest);
 
         // Then
         assertNotNull(response);
-        assertEquals(token, response.getToken());
-        assertEquals(email, response.getEmail());
+        assertEquals(testToken, response.getToken());
+        assertEquals(testUser.getUsername(), response.getUsername());
         assertTrue(response.isSuccess());
-
-        verify(userRepository).save(user);
+        verify(userRepository).save(testUser); // Check if lastLogin is updated
     }
 
     @Test
-    void givenNonexistentUser_whenLogin_thenThrowResourceNotFoundException() {
-
+    void givenNonexistentUser_whenSignIn_thenThrowAuthenticationException() {
         // Given
-        String nonExistentEmail = "nonexistent@example.com";
-        LoginRequest request = LoginRequest.builder()
-                .identifier(nonExistentEmail)
-                .password("password")
-                .build();
-
-        when(userRepository.findByEmail(nonExistentEmail)).thenReturn(Optional.empty());
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.empty());
+        when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
 
         // When & Then
-        assertThrows(ResourceNotFoundException.class, () -> authenticationService.login(request));
+        assertThrows(AuthenticationException.class, () -> authenticationService.signIn(signInRequest));
     }
 
     @Test
-    void givenAlreadyLoggedInUser_whenLogin_thenThrowAuthenticationException() {
-
+    void givenInvalidCredentials_whenSignIn_thenThrowAuthenticationException() {
         // Given
-        String email = "test@example.com";
-        LoginRequest request = LoginRequest.builder()
-                .identifier(email)
-                .password("password")
-                .build();
-
-        User user = User.builder()
-                .email(email)
-                .enabled(true)
-                .loggedIn(true) // Already logged in
-                .build();
-
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
-
-        // When & Then
-        assertThrows(AuthenticationException.class, () -> authenticationService.login(request));
-    }
-
-    @Test
-    void givenNonVerifiedUser_whenLogin_thenThrowAuthenticationException() {
-
-        // Given
-        String email = "test@example.com";
-        LoginRequest request = LoginRequest.builder()
-                .identifier(email)
-                .password("password")
-                .build();
-
-        User user = User.builder()
-                .email(email)
-                .enabled(false) // Not verified
-                .build();
-
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
-
-        // When & Then
-        assertThrows(AuthenticationException.class, () -> authenticationService.login(request));
-    }
-
-    @Test
-    void givenInvalidCredentials_whenLogin_thenThrowBadCredentialsException() {
-
-        // Given
-        String email = "test@example.com";
-        String password = "wrong_password";
-        LoginRequest request = LoginRequest.builder()
-                .identifier(email)
-                .password(password)
-                .build();
-
-        User user = User.builder()
-                .email(email)
-                .enabled(true)
-                .build();
-
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(testUser));
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                 .thenThrow(new BadCredentialsException("Invalid credentials"));
 
         // When & Then
-        assertThrows(BadCredentialsException.class, () -> authenticationService.login(request));
+        assertThrows(AuthenticationException.class, () -> authenticationService.signIn(signInRequest));
     }
 
     @Test
-    void givenLoggedInUser_whenLogout_thenBlacklistTokenAndClearContext() {
-
+    void givenUserNotEnabled_whenSignIn_thenThrowAuthenticationException() {
         // Given
-        String authHeader = "Bearer valid.jwt.token";
-        String token = "valid.jwt.token";
-        Date expiryDate = new Date(System.currentTimeMillis() + 3600000); // 1 hour in future
-
-        User user = User.builder()
-                .email("test@example.com")
-                .loggedIn(true)
-                .build();
-
-        UserPrincipal userPrincipal = new UserPrincipal(user);
-
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(userPrincipal);
-        when(jwtConfig.extractExpiration(token)).thenReturn(expiryDate);
-
-        // When
-        GenericResponse response = authenticationService.logout(authHeader);
-
-        // Then
-        assertNotNull(response);
-        assertEquals(200, response.getStatus());
-        assertEquals("Logged out successfully", response.getMessage());
-        assertFalse(user.isLoggedIn());
-
-        // Verify token blacklisting and context clearing
-        verify(userRepository).save(user);
-        verify(tokenBlacklistService).blacklistToken(eq(token), anyLong());
-    }
-
-    @Test
-    void givenNoAuthentication_whenLogout_thenJustClearContext() {
-
-        // Given
-        String authHeader = "Bearer valid.jwt.token";
-        String token = "valid.jwt.token";
-        Date expiryDate = new Date(System.currentTimeMillis() + 3600000); // 1 hour in future
-
-        when(securityContext.getAuthentication()).thenReturn(null);
-        when(jwtConfig.extractExpiration(token)).thenReturn(expiryDate);
-
-        // When
-        GenericResponse response = authenticationService.logout(authHeader);
-
-        // Then
-        assertNotNull(response);
-        assertEquals(200, response.getStatus());
-        assertEquals("Logged out successfully", response.getMessage());
-
-        // Verify token blacklisting only
-        verify(userRepository, never()).save(any(User.class));
-        verify(tokenBlacklistService).blacklistToken(eq(token), anyLong());
-    }
-
-    @Test
-    void givenNonUserPrincipal_whenLogout_thenJustClearContext() {
-
-        // Given
-        String authHeader = "Bearer valid.jwt.token";
-        String token = "valid.jwt.token";
-        Date expiryDate = new Date(System.currentTimeMillis() + 3600000); // 1 hour in future
-        String nonUserPrincipal = "non-user-principal";
-
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(nonUserPrincipal);
-        when(jwtConfig.extractExpiration(token)).thenReturn(expiryDate);
-
-        // When
-        GenericResponse response = authenticationService.logout(authHeader);
-
-        // Then
-        assertNotNull(response);
-        assertEquals(200, response.getStatus());
-        assertEquals("Logged out successfully", response.getMessage());
-
-        // Verify token blacklisting only
-        verify(userRepository, never()).save(any(User.class));
-        verify(tokenBlacklistService).blacklistToken(eq(token), anyLong());
-    }
-
-    @Test
-    void givenNonBearerAuthHeader_whenLogout_thenOnlyClearContext() {
-
-        // Given
-        String authHeader = "Basic dXNlcjpwYXNzd29yZA=="; // Basic auth header
-
-        // When
-        GenericResponse response = authenticationService.logout(authHeader);
-
-        // Then
-        assertNotNull(response);
-        assertEquals(200, response.getStatus());
-        assertEquals("Logged out successfully", response.getMessage());
-        verify(tokenBlacklistService, never()).blacklistToken(anyString(), anyLong());
-    }
-
-    @Test
-    void givenExpiredToken_whenLogout_thenHandleGracefully() {
-
-        // Given
-        String authHeader = "Bearer expired.token";
-        String token = "expired.token";
-
-        when(jwtConfig.extractExpiration(token)).thenThrow(new ExpiredJwtException(null, null, "Token expired"));
-
-        // When
-        GenericResponse response = authenticationService.logout(authHeader);
-
-        // Then
-        assertNotNull(response);
-        assertEquals(200, response.getStatus());
-        assertEquals("Logged out successfully", response.getMessage());
-        verify(tokenBlacklistService, never()).blacklistToken(anyString(), anyLong());
-    }
-
-    @Test
-    void givenNullAuthHeader_whenLogout_thenHandleGracefully() {
-
-        // When
-        GenericResponse response = authenticationService.logout(null);
-
-        // Then
-        assertNotNull(response);
-        assertEquals(200, response.getStatus());
-        assertEquals("Logged out successfully", response.getMessage());
-        verify(tokenBlacklistService, never()).blacklistToken(anyString(), anyLong());
-    }
-
-    @Test
-    void givenValidEmail_whenGetVerificationStatus_thenReturnAuthResponseWithToken() {
-
-        // Given
-        String email = "test@example.com";
-
-        User user = User.builder()
-                .email(email)
-                .enabled(true)
-                .build();
-
-        String token = "valid.jwt.token";
-
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
-        when(jwtConfig.generateToken(any(UserPrincipal.class))).thenReturn(token);
-
-        // When
-        AuthResponse response = authenticationService.getVerificationStatus(email);
-
-        // Then
-        assertNotNull(response);
-        assertEquals(token, response.getToken());
-    }
-
-    @Test
-    void givenNonVerifiedUser_whenGetVerificationStatus_thenReturnAuthResponseWithoutToken() {
-
-        // Given
-        String email = "test@example.com";
-
-        User user = User.builder()
-                .email(email)
-                .enabled(false)
-                .build();
-
-        when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
-
-        // When
-        AuthResponse response = authenticationService.getVerificationStatus(email);
-
-        // Then
-        assertNotNull(response);
-        assertEquals("", response.getToken());
-        verify(jwtConfig, never()).generateToken(any());
-    }
-
-    @Test
-    void givenNonexistentUser_whenGetVerificationStatus_thenThrowResourceNotFoundException() {
-
-        // Given
-        String email = "nonexistent@example.com";
-
-        when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+        testUser.setEnabled(false);
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(testUser));
 
         // When & Then
-        assertThrows(ResourceNotFoundException.class, () -> authenticationService.getVerificationStatus(email));
+        assertThrows(AuthenticationException.class, () -> authenticationService.signIn(signInRequest));
     }
 
     @Test
-    void givenAuthenticatedUser_whenGetCurrentUser_thenReturnUser() {
-
+    void givenValidRegistrationRequest_whenRegister_thenReturnSuccessResponse() {
         // Given
-        User user = User.builder()
-                .email("test@example.com")
-                .build();
+        User savedUser = EntityMapper.mapToNewUser(validRegisterRequest, passwordEncoder, "token");
+        savedUser.setId(UUID.randomUUID()); // Simulate persistence
+
+        when(userRepository.existsByUsername(anyString())).thenReturn(false);
+        when(userRepository.existsByEmail(anyString())).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+        when(emailService.sendVerificationEmailAsync(any(User.class))).thenReturn(CompletableFuture.completedFuture(null));
+
+        // When
+        AuthResponse response = authenticationService.register(validRegisterRequest);
+
+        // Then
+        assertNotNull(response);
+        assertTrue(response.isSuccess());
+        assertEquals("Registration successful! Please check your email to verify your account.", response.getMessage());
+        verify(userRepository).save(any(User.class));
+        verify(emailService).sendVerificationEmailAsync(any(User.class));
+    }
+
+    @Test
+    void givenExistingUsername_whenRegister_thenThrowDuplicateUserException() {
+        // Given
+        when(userRepository.existsByUsername(anyString())).thenReturn(true);
+
+        // When/Then
+        assertThrows(dev.idachev.userservice.exception.DuplicateUserException.class, () -> 
+            authenticationService.register(validRegisterRequest));
         
-        UserPrincipal userPrincipal = new UserPrincipal(user);
-
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(userPrincipal);
-
-        // When
-        User currentUser = authenticationService.getCurrentUser();
-
-        // Then
-        assertNotNull(currentUser);
-        assertEquals(user, currentUser);
+        verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
-    void givenNoAuthentication_whenGetCurrentUser_thenThrowAuthenticationException() {
-
+    void givenExistingEmail_whenRegister_thenThrowDuplicateUserException() {
         // Given
-        when(securityContext.getAuthentication()).thenReturn(null);
+        when(userRepository.existsByEmail(anyString())).thenReturn(true);
 
-        // When & Then
-        assertThrows(AuthenticationException.class, () -> authenticationService.getCurrentUser());
+        // When/Then
+        assertThrows(dev.idachev.userservice.exception.DuplicateUserException.class, () -> 
+            authenticationService.register(validRegisterRequest));
+        
+        verify(userRepository, never()).save(any(User.class));
     }
 
+    // --- Remove tests for methods moved to other services --- 
+    // - verifyEmail tests removed
+    // - verifyEmailAndGetResponse tests removed
+    // - resendVerificationEmail tests removed
+    // - resendVerificationEmailWithResponse tests removed
+    // - getVerificationStatus tests removed
+    // - getCurrentUser tests removed
+    // - getCurrentUserInfo tests removed
+
+    // Keep tests checking for conflicts with the pre-defined admin user
     @Test
-    void givenNonUserPrincipal_whenGetCurrentUser_thenThrowAuthenticationException() {
-
+    void givenAdminUserExists_whenRegisterWithSameUsername_thenThrowDuplicateUserException() {
         // Given
-        String nonUserPrincipal = "non-user-principal";
-
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(nonUserPrincipal);
-
-        // When & Then
-        assertThrows(AuthenticationException.class, () -> authenticationService.getCurrentUser());
-    }
-
-    @Test
-    void givenAuthenticatedUser_whenGetCurrentUserInfo_thenReturnUserResponse() {
-
-        // Given
-        User user = User.builder()
-                .username("testuser")
-                .email("test@example.com")
-                .enabled(true) // This should map to verified in UserResponse
+        String adminUsername = "Ivan";
+        RegisterRequest request = RegisterRequest.builder()
+                .username(adminUsername)
+                .email("another@example.com")
+                .password("password123")
                 .build();
-                
-        UserPrincipal userPrincipal = new UserPrincipal(user);
 
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(userPrincipal);
+        when(userRepository.existsByUsername(adminUsername)).thenReturn(true);
+
+        // When/Then
+        assertThrows(dev.idachev.userservice.exception.DuplicateUserException.class, () -> 
+            authenticationService.register(request));
+        
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void givenAdminUserExists_whenRegisterWithSameEmail_thenThrowDuplicateUserException() {
+        // Given
+        String adminEmail = "pffe3e@gmail.com";
+        RegisterRequest request = RegisterRequest.builder()
+                .username("newuser")
+                .email(adminEmail)
+                .password("password123")
+                .build();
+
+        when(userRepository.existsByEmail(adminEmail)).thenReturn(true);
+
+        // When/Then
+        assertThrows(dev.idachev.userservice.exception.DuplicateUserException.class, () -> 
+            authenticationService.register(request));
+        
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void refreshToken_Success() {
+        // Given
+        String authHeader = "Bearer " + testToken;
+        UserDetails userDetails = new UserPrincipal(testUser);
+        when(tokenService.extractUserId(anyString())).thenReturn(testUser.getId());
+        when(userDetailsService.loadUserById(any(UUID.class))).thenReturn(userDetails);
+        when(tokenService.generateToken(any(UserDetails.class))).thenReturn("new.token");
 
         // When
-        UserResponse result = authenticationService.getCurrentUserInfo();
+        AuthResponse response = authenticationService.refreshToken(authHeader);
 
         // Then
-        assertNotNull(result);
-        assertEquals(user.getUsername(), result.getUsername());
-        assertEquals(user.getEmail(), result.getEmail());
-        assertEquals(user.isEnabled(), result.isVerified());
+        assertTrue(response.isSuccess());
+        assertEquals("new.token", response.getToken());
+        verify(tokenService).blacklistToken(authHeader);
+    }
+
+    @Test
+    void refreshToken_InvalidHeader() {
+        // Given
+        String invalidHeader = "InvalidHeader";
+
+        // When/Then
+        assertThrows(AuthenticationException.class, () ->
+                authenticationService.refreshToken(invalidHeader));
+    }
+
+    @Test
+    void findByUsernameOrEmail_ByUsername() {
+        // Given
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(testUser));
+
+        // When
+        User result = authenticationService.findByUsernameOrEmail("testuser");
+
+        // Then
+        assertEquals(testUser, result);
+    }
+
+    @Test
+    void findByUsernameOrEmail_ByEmail() {
+        // Given
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.empty());
+        when(userRepository.findByEmail(anyString())).thenReturn(Optional.of(testUser));
+
+        // When
+        User result = authenticationService.findByUsernameOrEmail("test@example.com");
+
+        // Then
+        assertEquals(testUser, result);
+    }
+
+    @Test
+    void findByUsernameOrEmail_NotFound() {
+        // Given
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.empty());
+        when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
+
+        // When/Then
+        assertThrows(ResourceNotFoundException.class, () ->
+                authenticationService.findByUsernameOrEmail("nonexistent"));
+    }
+
+    @Test
+    void givenValidUserId_whenLogout_thenUpdateUserStatus() {
+        // Given
+        when(userRepository.findById(any(UUID.class))).thenReturn(Optional.of(testUser));
+
+        // When
+        authenticationService.logout(testUser.getId());
+
+        // Then
+        verify(userRepository).save(any(User.class));
+    }
+
+    @Test
+    void givenNullUserId_whenLogout_thenDoNothing() {
+        // When
+        authenticationService.logout(null);
+
+        // Then
+        verify(userRepository, never()).save(any(User.class));
     }
 }

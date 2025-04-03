@@ -3,9 +3,9 @@ package dev.idachev.userservice.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.idachev.userservice.config.JwtConfig;
 import dev.idachev.userservice.config.SecurityConfig;
-import dev.idachev.userservice.service.AuthenticationService;
 import dev.idachev.userservice.service.TokenBlacklistService;
-import dev.idachev.userservice.service.UserService;
+import dev.idachev.userservice.service.UserDetailsService;
+import dev.idachev.userservice.service.VerificationService;
 import dev.idachev.userservice.web.dto.*;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,7 +13,6 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -29,10 +28,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 public class VerificationControllerApiTest {
 
     @MockitoBean
-    private UserService userService;
-
-    @MockitoBean
-    private AuthenticationService authenticationService;
+    private VerificationService verificationService;
 
     @MockitoBean
     private JwtConfig jwtConfig;
@@ -61,7 +57,7 @@ public class VerificationControllerApiTest {
                 .verified(false)
                 .build();
 
-        when(authenticationService.getVerificationStatus(email)).thenReturn(response);
+        when(verificationService.getVerificationStatus(email)).thenReturn(response);
 
         // When
         MockHttpServletRequestBuilder request = get("/api/v1/verification/status")
@@ -83,7 +79,7 @@ public class VerificationControllerApiTest {
                 .message("Verification email sent")
                 .build();
 
-        when(userService.resendVerificationEmailWithResponse(any())).thenReturn(response);
+        when(verificationService.resendVerificationEmailWithResponse(any())).thenReturn(response);
 
         // When
         MockHttpServletRequestBuilder requestBuilder = post("/api/v1/verification/resend")
@@ -106,7 +102,7 @@ public class VerificationControllerApiTest {
                 .success(true)
                 .build();
 
-        when(userService.verifyEmailForRedirect(token)).thenReturn(result);
+        when(verificationService.verifyEmailForRedirect(token)).thenReturn(result);
 
         // When
         MockHttpServletRequestBuilder request = get("/api/v1/verification/verify/{token}", token);
@@ -114,7 +110,7 @@ public class VerificationControllerApiTest {
         // Then
         mockMvc.perform(request)
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("**/login?verified=true"));
+                .andExpect(redirectedUrlPattern("**/signin?verified=true"));
     }
 
     @Test
@@ -127,7 +123,7 @@ public class VerificationControllerApiTest {
                 .message("Email verified successfully")
                 .build();
 
-        when(userService.verifyEmailAndGetResponse(any())).thenReturn(response);
+        when(verificationService.verifyEmailAndGetResponse(any())).thenReturn(response);
 
         // When
         MockHttpServletRequestBuilder requestBuilder = post("/api/v1/verification/verify")

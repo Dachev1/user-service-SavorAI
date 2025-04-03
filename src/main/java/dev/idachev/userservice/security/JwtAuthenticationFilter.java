@@ -1,11 +1,10 @@
 package dev.idachev.userservice.security;
 
-import dev.idachev.userservice.config.JwtConfig;
-import dev.idachev.userservice.service.TokenBlacklistService;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,15 +12,19 @@ import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
+import dev.idachev.userservice.config.JwtConfig;
+import dev.idachev.userservice.service.TokenBlacklistService;
+import dev.idachev.userservice.service.UserDetailsService;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -32,17 +35,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     // Paths that don't require authentication
     private static final List<String> PUBLIC_PATHS = Arrays.asList(
-            "/api/v1/user/login",
-            "/api/v1/user/register",
+            "/api/v1/auth/signin",
+            "/api/v1/auth/signup",
             "/api/v1/user/verify-email/",
             "/api/v1/verification/",
+            "/api/v1/auth/logout",
+            "/api/v1/auth/refresh-token",
             "/swagger-ui/",
             "/api-docs/",
             "/v3/api-docs/",
             "/css/", "/js/", "/images/",
             "/actuator/",
-            "/favicon.ico"
-    );
+            "/favicon.ico");
 
     private final JwtConfig jwtConfig;
     private final UserDetailsService userDetailsService;
@@ -62,15 +66,29 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String requestPath = request.getRequestURI();
-        return PUBLIC_PATHS.stream().anyMatch(requestPath::startsWith);
+        String method = request.getMethod();
+
+        // Always skip filtering for logout requests (GET or POST)
+        if (requestPath.startsWith("/api/v1/auth/logout")) {
+            logger.debug("Skipping JWT filter for logout request: {} {}", method, requestPath);
+            return true;
+        }
+
+        // Skip for other public paths
+        for (String publicPath : PUBLIC_PATHS) {
+            if (requestPath.startsWith(publicPath)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     @Override
     protected void doFilterInternal(
             @NonNull HttpServletRequest request,
             @NonNull HttpServletResponse response,
-            @NonNull FilterChain filterChain
-    ) throws ServletException, IOException {
+            @NonNull FilterChain filterChain) throws ServletException, IOException {
         try {
             String jwtToken = getJwtFromRequest(request);
 
@@ -98,19 +116,36 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
      */
     private void authenticateWithToken(String jwtToken, HttpServletRequest request) {
         try {
-            String username = jwtConfig.extractUsername(jwtToken);
+            UUID userId = jwtConfig.extractUserId(jwtToken);
+            String tokenUsername = jwtConfig.extractUsername(jwtToken);
 
-            if (username != null) {
-                UserDetails userDetails = userDetailsService.loadUserByUsername(username);
+            if (userId == null) {
+                logger.warn("Token has no user ID");
+                return;
+            }
 
-                if (jwtConfig.validateToken(jwtToken, userDetails)) {
-                    UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                            userDetails, null, userDetails.getAuthorities());
-                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
-                    logger.debug("Authenticated user: {}", username);
+            // Always load by ID to get the most current user data
+            UserDetails userDetails = userDetailsService.loadUserById(userId);
+
+            if (jwtConfig.validateToken(jwtToken, userDetails)) {
+                // Create authentication object and set it in the security context
+                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities());
+                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+
+                // Log username information for debugging
+                String currentUsername = userDetails.getUsername();
+                logger.debug("Authenticated user: {}", currentUsername);
+
+                // Only log username mismatch if needed
+                if (!currentUsername.equals(tokenUsername)) {
+                    logger.debug("Note: Token username '{}' differs from current username '{}'",
+                            tokenUsername, currentUsername);
                 }
             }
+        } catch (UsernameNotFoundException e) {
+            logger.warn("User not found for token: {}", e.getMessage());
         } catch (Exception e) {
             logger.warn("Token validation failed: {}", e.getMessage());
         }
@@ -118,7 +153,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private String getJwtFromRequest(HttpServletRequest request) {
         String bearerToken = request.getHeader(AUTHORIZATION_HEADER);
-        return StringUtils.hasText(bearerToken) && bearerToken.startsWith(BEARER_PREFIX) ?
-                bearerToken.substring(BEARER_PREFIX.length()) : null;
+        return StringUtils.hasText(bearerToken) && bearerToken.startsWith(BEARER_PREFIX)
+                ? bearerToken.substring(BEARER_PREFIX.length())
+                : null;
     }
-} 
+}

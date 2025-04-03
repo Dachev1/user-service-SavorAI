@@ -1,228 +1,101 @@
 package dev.idachev.userservice.service;
 
-import dev.idachev.userservice.exception.DuplicateUserException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.mapper.DtoMapper;
 import dev.idachev.userservice.mapper.EntityMapper;
 import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
-import dev.idachev.userservice.web.dto.*;
+import dev.idachev.userservice.security.UserPrincipal;
+import dev.idachev.userservice.service.EmailService;
+import dev.idachev.userservice.service.TokenService;
+import dev.idachev.userservice.web.dto.AuthResponse;
+import dev.idachev.userservice.web.dto.GenericResponse;
+import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
+import dev.idachev.userservice.web.dto.RegisterRequest;
+import dev.idachev.userservice.web.dto.UserResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-
-@Service
+/**
+ * Service for user management operations
+ */
 @Slf4j
+@Service
 public class UserService {
 
     private final UserRepository userRepository;
+    private final dev.idachev.userservice.service.UserDetailsService userDetailsService;
+    private final CacheManager cacheManager;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
+    private final TokenService tokenService;
 
     @Autowired
-    public UserService(
-            UserRepository userRepository,
-            PasswordEncoder passwordEncoder,
-            EmailService emailService) {
+    public UserService(UserRepository userRepository,
+                      dev.idachev.userservice.service.UserDetailsService userDetailsService,
+                      CacheManager cacheManager, 
+                      PasswordEncoder passwordEncoder,
+                      EmailService emailService,
+                      TokenService tokenService) {
         this.userRepository = userRepository;
+        this.userDetailsService = userDetailsService;
+        this.cacheManager = cacheManager;
         this.passwordEncoder = passwordEncoder;
         this.emailService = emailService;
+        this.tokenService = tokenService;
     }
 
     /**
-     * Registers a new user
+     * Registers a new user and saves them to the database
      *
-     * @param request Registration details
-     * @return AuthResponse with registration status
+     * @param request The registration request
+     * @return The saved user entity
      */
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
-        // Check if request is null
-        if (request == null) {
-            log.error("Registration failed: request is null");
-            return DtoMapper.mapToAuthResponse(false, "Registration request cannot be null");
-        }
+    public User registerUser(RegisterRequest request) {
+        log.debug("Creating new user with request: {}", request);
 
-        log.info("Registering new user with email: {}", request.getEmail());
+        // Create the new user entity
+        User newUser = createNewUser(request);
 
-        try {
-            // Check for existing username/email
-            checkForExistingUser(request.getUsername(), request.getEmail());
+        // Save the user to the database
+        User savedUser = userRepository.save(newUser);
+        log.info("New user created with ID: {}", savedUser.getId());
 
-            // Create and save new user
-            User newUser = createNewUser(request);
-            User savedUser = userRepository.save(newUser);
-
-            // Send verification email asynchronously
-            emailService.sendVerificationEmailAsync(savedUser);
-
-            log.info("User registered successfully: {}", savedUser.getEmail());
-
-            return DtoMapper.mapToAuthResponse(
-                    savedUser,
-                    true,
-                    "Registration successful! Please check your email to verify your account."
-            );
-        } catch (DuplicateUserException e) {
-            log.warn("Registration failed - duplicate user: {}", e.getMessage());
-            return DtoMapper.mapToAuthResponse(false, e.getMessage());
-        } catch (Exception e) {
-            log.error("Error during user registration: {}", e.getMessage(), e);
-            return DtoMapper.mapToAuthResponse(
-                    false,
-                    "Registration failed. Please try again later."
-            );
-        }
+        return savedUser;
     }
 
     /**
-     * Verifies email token
-     *
-     * @param token Token to verify
-     * @return True if verified successfully
-     * @throws ResourceNotFoundException If token is invalid or not found
+     * Creates a new user entity from the registration request
      */
-    @Transactional
-    public boolean verifyEmail(String token) {
-        return Optional.ofNullable(token)
-                .filter(t -> !t.trim().isEmpty())
-                .flatMap(userRepository::findByVerificationToken)
-                .map(user -> {
-                    if (user.isEnabled()) {
-                        log.info("User already verified: {}", user.getEmail());
-                        return true;
-                    }
-
-                    user.setEnabled(true);
-                    user.setVerificationToken(null); // Clear token after use
-                    user.setUpdatedOn(LocalDateTime.now());
-                    userRepository.save(user);
-
-                    log.info("Email verified for user: {}, new enabled status: {}",
-                            user.getEmail(), user.isEnabled());
-                    return true;
-                })
-                .orElseThrow(() -> {
-                    log.warn("No user found with verification token: {}", token);
-                    return new ResourceNotFoundException("Invalid verification token");
-                });
-    }
-
-    /**
-     * Resends verification email for a user
-     *
-     * @param email User's email address
-     * @return True if email sent successfully
-     */
-    @Transactional
-    public boolean resendVerificationEmail(String email) {
-        if (email == null || email.trim().isEmpty()) {
-            log.warn("Cannot resend verification to empty email");
-            return false;
-        }
-
-        log.info("Attempting to resend verification email to: {}", email);
-
-        try {
-            User user = userRepository.findByEmail(email)
-                    .orElseThrow(() -> {
-                        log.warn("Cannot resend verification - user not found: {}", email);
-                        return new ResourceNotFoundException("User not found with email: " + email);
-                    });
-
-            if (user.isEnabled()) {
-                log.warn("Cannot resend verification email - user is already verified: {}", email);
-                return false;
-            }
-
-            // If token is missing, generate a new one
-            if (user.getVerificationToken() == null || user.getVerificationToken().isEmpty()) {
-                log.info("Generating new verification token for user: {}", email);
-                user.setVerificationToken(emailService.generateVerificationToken());
-                user.setUpdatedOn(LocalDateTime.now());
-                user = userRepository.save(user);
-            }
-
-            // Send verification email asynchronously
-            emailService.sendVerificationEmailAsync(user);
-            log.info("Verification email resent to: {}", email);
-
-            return true;
-        } catch (Exception e) {
-            log.error("Failed to resend verification email to: {}", email, e);
-            return false;
-        }
-    }
-
-    /**
-     * Verifies a user's email and returns detailed response
-     *
-     * @param token Verification token
-     * @return Verification response with status
-     */
-    @Transactional
-    public VerificationResponse verifyEmailAndGetResponse(String token) {
-        if (token == null || token.trim().isEmpty()) {
-            log.warn("Empty verification token in verifyEmailAndGetResponse");
-            return DtoMapper.mapToVerificationResponse(
-                    null, false, "Verification failed. The token is empty or invalid.");
-        }
-
-        try {
-            log.info("Processing verification token with detailed response");
-            verifyEmail(token);
-            return DtoMapper.mapToVerificationResponse(
-                    null, true, "Your email has been verified successfully. You can now log in to your account.");
-
-        } catch (ResourceNotFoundException e) {
-            log.warn("Resource not found in verification: {}", e.getMessage());
-            return handleVerificationNotFound(token, e);
-
-        } catch (Exception e) {
-            log.error("Unexpected error in email verification: {}", e.getMessage(), e);
-            return DtoMapper.mapToVerificationResponse(
-                    null, false, "An error occurred during verification. Please try again later.");
-        }
-    }
-
-    /**
-     * Handles the case when a verification token is not found
-     * Checks if the user might already be verified
-     */
-    private VerificationResponse handleVerificationNotFound(String token, ResourceNotFoundException e) {
-        try {
-            return userRepository.findByVerificationToken(token)
-                    .flatMap(u -> userRepository.findByEmail(u.getEmail()))
-                    .filter(User::isEnabled)
-                    .map(u -> DtoMapper.mapToVerificationResponse(
-                            null, true, "Your email was already verified. You can log in to your account."))
-                    .orElse(DtoMapper.mapToVerificationResponse(
-                            null, false, "Verification failed. " + e.getMessage()));
-        } catch (Exception ignored) {
-            return DtoMapper.mapToVerificationResponse(
-                    null, false, "Verification failed. " + e.getMessage());
-        }
+    private User createNewUser(RegisterRequest request) {
+        String verificationToken = emailService.generateVerificationToken();
+        return EntityMapper.mapToNewUser(request, passwordEncoder, verificationToken);
     }
 
     /**
      * Gets all users in the system (admin only)
-     *
-     * @return List of UserResponse DTOs
      */
     @Transactional(readOnly = true)
+    @Cacheable(value = "users", key = "'allUsers'")
     public List<UserResponse> getAllUsers() {
-        log.info("Admin request to get all users");
-
+        log.info("Retrieving all users from the system");
         return userRepository.findAll().stream()
                 .map(DtoMapper::mapToUserResponse)
                 .collect(Collectors.toList());
@@ -230,123 +103,302 @@ public class UserService {
 
     /**
      * Sets a user's role (admin only)
-     *
-     * @param userId User ID
-     * @param role   Role to set
-     * @return GenericResponse with status
-     * @throws ResourceNotFoundException if user not found
      */
     @Transactional
+    @CacheEvict(value = "users", allEntries = true)
     public GenericResponse setUserRole(UUID userId, Role role) {
-        log.info("Admin request to set user {} role to {}", userId, role);
+        log.info("Setting role {} for user {}", role, userId);
 
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> {
-                    log.warn("User not found with id: {}", userId);
-                    return new ResourceNotFoundException("User not found with id: " + userId);
-                });
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
 
+        // Store old role for logging
+        Role oldRole = user.getRole();
+
+        // Set new role and update timestamps
         user.setRole(role);
-        userRepository.save(user);
+        user.setUpdatedOn(LocalDateTime.now());
 
-        log.info("User {} role updated to {}", userId, role);
+        // Explicitly flush to ensure immediate persistence
+        userRepository.saveAndFlush(user);
 
-        return DtoMapper.mapToGenericResponse(
-                200,
-                "User role updated successfully"
-        );
+        // Verify the change was persisted
+        User verifiedUser = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+
+        if (!verifiedUser.getRole().equals(role)) {
+            log.error("Role change verification failed. Expected: {}, Actual: {}", role, verifiedUser.getRole());
+            throw new RuntimeException("Role change failed to persist");
+        }
+
+        log.info("Successfully updated role from {} to {} for user {}", oldRole, role, userId);
+        return GenericResponse.builder()
+                .status(200)
+                .message("User role updated successfully")
+                .timestamp(LocalDateTime.now())
+                .success(true)
+                .build();
     }
 
     /**
-     * Resends verification email and returns a formatted response
-     *
-     * @param email User's email address
-     * @return EmailVerificationResponse with status and message
+     * Updates a user's role and refreshes their token
+     * This method combines the role update logic and token refresh
+     * 
+     * @param userId User ID to update
+     * @param role New role to assign
+     * @return GenericResponse with the result of the operation
      */
     @Transactional
-    public EmailVerificationResponse resendVerificationEmailWithResponse(String email) {
-        boolean sent = resendVerificationEmail(email);
+    @CacheEvict(value = "users", allEntries = true)
+    public GenericResponse updateUserRoleWithTokenRefresh(UUID userId, Role role) {
+        log.info("Updating role with token refresh for user {} to {}", userId, role);
+        
+        // First update the role in the database
+        GenericResponse roleUpdateResponse = setUserRole(userId, role);
+        
+        // If the database update was successful, proceed with token refresh
+        if (roleUpdateResponse.isSuccess()) {
+            try {
+                // Get fresh user data from database
+                User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
 
-        return new EmailVerificationResponse(
-                sent,
-                sent ? "Verification email has been resent. Please check your inbox."
-                        : "Failed to resend verification email. Please try again later.",
-                LocalDateTime.now()
-        );
+                // Generate new token with updated role
+                String newToken = tokenService.generateToken(new UserPrincipal(user));
+                
+                // Blacklist all existing tokens for this user
+                blacklistUserTokens(userId);
+                
+                log.info("Role change with token refresh completed successfully for user {}", userId);
+            } catch (Exception e) {
+                log.error("Error during token refresh: {}", e.getMessage());
+                // Even if token refresh fails, the role change was successful in the database
+                // Include this information in the response
+                roleUpdateResponse.setMessage(roleUpdateResponse.getMessage() + 
+                    " (Note: Token refresh failed, user will need to log out and back in)");
+            }
+        }
+        
+        return roleUpdateResponse;
     }
-
+    
     /**
-     * Verifies email token and returns a result object suitable for redirect flow
-     * This method does not throw exceptions
-     *
-     * @param token Token to verify
-     * @return VerificationResult with success flag and error type if applicable
+     * Blacklist all tokens for a specific user
      */
-    @Transactional
-    public VerificationResult verifyEmailForRedirect(String token) {
+    private void blacklistUserTokens(UUID userId) {
         try {
-            if (token == null || token.trim().isEmpty()) {
-                log.warn("Empty verification token in verifyEmailForRedirect");
-                return VerificationResult.failure("InvalidTokenException");
+            // Create a special blacklist entry that marks all tokens for this user as invalid
+            String userSpecificKey = "user_tokens_invalidated:" + userId.toString();
+
+            // Set blacklist entry with a long expiry (24 hours)
+            long expiryTime = System.currentTimeMillis() + (24 * 60 * 60 * 1000);
+            tokenService.blacklistToken(userSpecificKey);
+
+            log.info("All tokens blacklisted for user ID: {}", userId);
+        } catch (Exception e) {
+            log.error("Failed to blacklist tokens for user: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Toggles a user's ban status (admin only)
+     */
+    @Transactional
+    @CacheEvict(value = "users", allEntries = true)
+    public GenericResponse toggleUserBan(UUID userId) {
+        log.info("Toggling ban status for user {}", userId);
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+
+        // Log current ban status before toggle
+        log.info("Current ban status for user {}: {}", userId, user.isBanned());
+
+        // Toggle ban status
+        user.setBanned(!user.isBanned());
+
+        // Log new ban status after toggle  
+        log.info("New ban status for user {}: {}", userId, user.isBanned());
+
+        User savedUser = userRepository.save(user);
+
+        // Verify saved state
+        log.info("Saved user ban status for {}: {}", userId, savedUser.isBanned());
+
+        // Clear all caches for this specific user
+        String usernameKey = "username_" + savedUser.getUsername();
+        String emailKey = "email_" + savedUser.getEmail();
+        String userIdKey = savedUser.getId().toString();
+
+        // Forcibly clear specific cache entries
+        cacheEvict("users", usernameKey);
+        cacheEvict("users", emailKey);
+        cacheEvict("users", userIdKey);
+        cacheEvict("users", "exists_username_" + savedUser.getUsername());
+
+        String message = user.isBanned() ? "User banned successfully" : "User unbanned successfully";
+        log.info("Successfully toggled ban status for user {}. New status: {}", userId, user.isBanned());
+
+        return GenericResponse.builder()
+                .status(200)
+                .message(message)
+                .timestamp(LocalDateTime.now())
+                .success(true)
+                .build();
+    }
+
+    /**
+     * Finds a user by ID
+     */
+    @Transactional(readOnly = true)
+    @Cacheable(value = "users", key = "#userId")
+    public UserResponse findUserById(UUID userId) {
+        log.info("Finding user with id: {}", userId);
+        return userRepository.findById(userId)
+                .map(DtoMapper::mapToUserResponse)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+    }
+
+    /**
+     * Finds a user by username
+     */
+    @Transactional(readOnly = true)
+    @Cacheable(value = "users", key = "'username_' + #username")
+    public UserResponse findUserByUsername(String username) {
+        log.info("Finding user with username: {}", username);
+        return userRepository.findByUsername(username)
+                .map(DtoMapper::mapToUserResponse)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username));
+    }
+
+    /**
+     * Finds a user by email
+     */
+    @Transactional(readOnly = true)
+    @Cacheable(value = "users", key = "'email_' + #email")
+    public UserResponse findUserByEmail(String email) {
+        log.info("Finding user with email: {}", email);
+        return userRepository.findByEmail(email)
+                .map(DtoMapper::mapToUserResponse)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
+    }
+
+    /**
+     * Checks if a username exists in the system
+     */
+    @Transactional(readOnly = true)
+    @Cacheable(value = "users", key = "'exists_username_' + #username")
+    public boolean existsByUsername(String username) {
+        log.info("Checking if username exists: {}", username);
+        return userRepository.existsByUsername(username);
+    }
+
+    /**
+     * Finds a user by username
+     */
+    @Cacheable(value = "users", key = "#username")
+    public User findByUsername(String username) {
+        return userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("User not found with username: " + username));
+    }
+
+    @Transactional
+    @CacheEvict(value = "users", key = "#currentUsername")
+    public UserResponse updateProfile(String currentUsername, ProfileUpdateRequest request) {
+        try {
+            User user = findByUsername(currentUsername);
+            boolean usernameChanged = false;
+
+            if (request.getUsername() != null && !request.getUsername().equals(currentUsername)) {
+                if (userRepository.existsByUsername(request.getUsername())) {
+                    throw new IllegalArgumentException("Username is already taken");
+                }
+                usernameChanged = true;
+                user.setUsername(request.getUsername());
             }
 
-            boolean verified = verifyEmail(token);
-            return VerificationResult.success();
-        } catch (ResourceNotFoundException e) {
-            log.warn("Resource not found in verifyEmailForRedirect: {}", e.getMessage());
-            return VerificationResult.failure("ResourceNotFoundException");
+            User savedUser = userRepository.save(user);
+            log.info("Profile updated successfully for user: {}", currentUsername);
+
+            // Handle cache invalidation if username changed
+            if (usernameChanged) {
+                log.info("Username changed from {} to {}. Invalidating caches.", currentUsername, savedUser.getUsername());
+
+                // Invalidate all relevant caches
+                cacheEvict("users", "username_" + savedUser.getUsername());
+                cacheEvict("users", "exists_username_" + savedUser.getUsername());
+                cacheEvict("users", savedUser.getUsername());
+
+                // Update auth service to ensure JWT tokens reflect the new username
+                log.info("Triggering username change handling in AuthService for user: {}", savedUser.getId());
+                userDetailsService.handleUsernameChange(currentUsername, savedUser.getUsername(), savedUser.getId());
+            }
+
+            // Convert to UserResponse DTO and return it directly
+            return DtoMapper.mapToUserResponse(savedUser);
+        } catch (IllegalArgumentException e) {
+            log.warn("Invalid profile update request: {}", e.getMessage());
+            throw e;
         } catch (Exception e) {
-            log.error("Error in verifyEmailForRedirect: {}", e.getMessage(), e);
-            return VerificationResult.failure(e.getClass().getSimpleName());
+            log.error("Error updating profile for user: {}", currentUsername, e);
+            throw new RuntimeException("Failed to update profile", e);
         }
     }
 
     /**
-     * Find a user by username or email
+     * Helper method to manually evict cache entries
+     */
+    public void cacheEvict(String cacheName, String cacheKey) {
+        log.debug("Evicting cache entry: {} with key: {}", cacheName, cacheKey);
+        if (cacheManager != null && cacheManager.getCache(cacheName) != null) {
+            Objects.requireNonNull(cacheManager.getCache(cacheName)).evict(cacheKey);
+        }
+    }
+
+    /**
+     * Get a user by username
      *
-     * @param identifier Username or email
-     * @return User if found
-     * @throws ResourceNotFoundException if user not found
+     * @param username The username to look up
+     * @return The user if found, null otherwise
      */
-    public User findByUsernameOrEmail(String identifier) {
-        if (identifier == null) {
-            throw new IllegalArgumentException("Username or email cannot be null");
+    public User getUserByUsername(String username) {
+        if (username == null || username.isBlank()) {
+            return null;
         }
-
-        // Check if it's an email (contains @)
-        if (identifier.contains("@")) {
-            return userRepository.findByEmail(identifier)
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + identifier));
-        } else {
-            return userRepository.findByUsername(identifier)
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + identifier));
-        }
+        return userRepository.findByUsername(username).orElse(null);
     }
 
-    // Private helper methods
-
     /**
-     * Checks if a user with the same username or email already exists
+     * Check if a user ID belongs to the currently authenticated user
      *
-     * @param username Username to check
-     * @param email    Email to check
-     * @throws DuplicateUserException if user with same username or email exists
+     * @param userId The user ID to check
+     * @return True if the user ID belongs to the current user
      */
-    private void checkForExistingUser(String username, String email) {
-        if (userRepository.existsByUsername(username)) {
-            throw new DuplicateUserException("Username already exists");
+    public boolean isCurrentUser(UUID userId) {
+        if (userId == null) {
+            return false;
         }
 
-        if (userRepository.existsByEmail(email)) {
-            throw new DuplicateUserException("Email already exists");
+        // Get currently authenticated user
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return false;
         }
-    }
 
-    /**
-     * Creates a new user entity from registration request
-     */
-    private User createNewUser(RegisterRequest request) {
-        String verificationToken = emailService.generateVerificationToken();
-        return EntityMapper.mapToNewUser(request, passwordEncoder, verificationToken);
+        // Get principal from authentication
+        Object principal = authentication.getPrincipal();
+        UUID currentUserId = null;
+
+        // Extract user ID based on principal type
+        if (principal instanceof UserPrincipal userPrincipal) {
+            currentUserId = userPrincipal.user().getId();
+        } else if (principal instanceof UserDetails userDetails) {
+            User user = getUserByUsername(userDetails.getUsername());
+            if (user != null) {
+                currentUserId = user.getId();
+            }
+        }
+
+        return userId.equals(currentUserId);
     }
 } 

@@ -13,8 +13,6 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.security.Key;
 import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.UUID;
 import java.util.function.Function;
 
@@ -48,50 +46,14 @@ public class JwtConfig {
      * @return JWT token string
      */
     public String generateToken(UserDetails userDetails) {
+        if (userDetails instanceof UserPrincipal) {
+            User user = ((UserPrincipal) userDetails).user();
 
-        return generateToken(new HashMap<>(), userDetails);
-    }
-
-    /**
-     * Generates an access token with additional claims
-     *
-     * @param extraClaims Additional claims to include in the token
-     * @param userDetails User details from Spring Security
-     * @return JWT token string
-     */
-    public String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
-
-        return buildToken(extraClaims, userDetails, expiration);
-    }
-
-    /**
-     * Common method to build a token with specific expiration
-     *
-     * @param extraClaims Additional claims to include in the token
-     * @param userDetails User details from Spring Security
-     * @param expiration  Expiration time in milliseconds
-     * @return JWT token string
-     */
-    private String buildToken(Map<String, Object> extraClaims, UserDetails userDetails, long expiration) {
-
-        Map<String, Object> claims = new HashMap<>(extraClaims);
-        claims.put("authorities", userDetails.getAuthorities());
-
-        // Add user-specific claims
-        if (userDetails instanceof UserPrincipal userPrincipal) {
-            User user = userPrincipal.user();
-            claims.put("userId", user.getId().toString());
-            claims.put("email", user.getEmail());
+            return Jwts.builder().setSubject(userDetails.getUsername()).claim("userId", user.getId().toString()).claim("role", user.getRole().toString()).claim("email", user.getEmail()).claim("banned", user.isBanned()).setIssuedAt(new Date()).setExpiration(new Date(System.currentTimeMillis() + expiration)).signWith(signingKey, io.jsonwebtoken.SignatureAlgorithm.HS384).compact();
         }
 
-        return Jwts.builder()
-                .setClaims(claims)
-                .setSubject(userDetails.getUsername())
-                .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + expiration))
-                .setId(UUID.randomUUID().toString())
-                .signWith(signingKey, io.jsonwebtoken.SignatureAlgorithm.HS384) // Explicitly use HS384
-                .compact();
+        // For non-UserPrincipal users (should not happen in normal flow)
+        return Jwts.builder().setSubject(userDetails.getUsername()).setIssuedAt(new Date()).setExpiration(new Date(System.currentTimeMillis() + expiration)).signWith(signingKey, io.jsonwebtoken.SignatureAlgorithm.HS384).compact();
     }
 
     /**
@@ -101,8 +63,26 @@ public class JwtConfig {
      * @return Username string
      */
     public String extractUsername(String token) {
-
         return extractClaim(token, Claims::getSubject);
+    }
+
+    /**
+     * Extracts the user ID from a token
+     *
+     * @param token JWT token
+     * @return User ID as UUID
+     */
+    public UUID extractUserId(String token) {
+        final Claims claims = extractAllClaims(token);
+        String userIdStr = claims.get("userId", String.class);
+        if (userIdStr == null) {
+            throw new JwtException("User ID claim is missing from the token");
+        }
+        try {
+            return UUID.fromString(userIdStr);
+        } catch (IllegalArgumentException e) {
+            throw new JwtException("Invalid User ID format in the token", e);
+        }
     }
 
     /**
@@ -140,11 +120,7 @@ public class JwtConfig {
 
         try {
 
-            return Jwts.parserBuilder()
-                    .setSigningKey(signingKey)
-                    .build()
-                    .parseClaimsJws(token)
-                    .getBody();
+            return Jwts.parserBuilder().setSigningKey(signingKey).build().parseClaimsJws(token).getBody();
 
         } catch (ExpiredJwtException e) {
 

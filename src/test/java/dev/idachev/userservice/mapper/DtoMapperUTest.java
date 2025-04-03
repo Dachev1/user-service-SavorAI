@@ -37,7 +37,7 @@ public class DtoMapperUTest {
                 .email("test@example.com")
                 .password("encoded_password")
                 .enabled(true)
-                .verificationToken(null) // No verification pending
+                .verificationToken(null)
                 .role(Role.USER)
                 .createdOn(LocalDateTime.now().minusDays(1))
                 .updatedOn(LocalDateTime.now().minusHours(1))
@@ -47,26 +47,21 @@ public class DtoMapperUTest {
 
     @Test
     void whenMapToUserResponse_thenReturnUserResponseDTO() {
-
-        // When
         UserResponse response = DtoMapper.mapToUserResponse(testUser);
 
-        // Then
         assertNotNull(response);
         assertEquals(testId, response.getId());
         assertEquals(testUser.getUsername(), response.getUsername());
         assertEquals(testUser.getEmail(), response.getEmail());
         assertTrue(response.isVerified());
         assertFalse(response.isVerificationPending());
-        assertEquals("USER", response.getRole());
+        assertEquals(Role.USER, response.getRole());
         assertEquals(testUser.getCreatedOn(), response.getCreatedOn());
         assertEquals(testUser.getLastLogin(), response.getLastLogin());
     }
 
     @Test
     void givenNullUser_whenMapToUserResponse_thenThrowIllegalArgumentException() {
-
-        // When & Then
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
                 () -> DtoMapper.mapToUserResponse(null)
@@ -77,11 +72,8 @@ public class DtoMapperUTest {
 
     @Test
     void whenMapToAuthResponseWithToken_thenReturnAuthResponseWithToken() {
-
-        // When
         AuthResponse response = DtoMapper.mapToAuthResponse(testUser, testToken);
 
-        //Then
         assertNotNull(response);
         assertEquals(testUser.getUsername(), response.getUsername());
         assertEquals(testUser.getEmail(), response.getEmail());
@@ -94,8 +86,6 @@ public class DtoMapperUTest {
 
     @Test
     void givenNullUser_whenMapToAuthResponseWithToken_thenThrowIllegalArgumentException() {
-
-        // When & Then
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
                 () -> DtoMapper.mapToAuthResponse(null, testToken)
@@ -106,25 +96,18 @@ public class DtoMapperUTest {
 
     @Test
     void givenNullToken_whenMapToAuthResponseWithToken_thenUseEmptyString() {
-
-        // When
         AuthResponse response = DtoMapper.mapToAuthResponse(testUser, null);
 
-        // Then
         assertNotNull(response);
         assertEquals("", response.getToken());
     }
 
     @Test
     void whenMapToAuthResponseWithUserAndSuccessMessage_thenReturnCorrectDTO() {
-
-        // Given
         boolean success = true;
-
-        // When
+        
         AuthResponse response = DtoMapper.mapToAuthResponse(testUser, success, testMessage);
 
-        // Then
         assertNotNull(response);
         assertEquals(testUser.getUsername(), response.getUsername());
         assertEquals(testUser.getEmail(), response.getEmail());
@@ -135,14 +118,10 @@ public class DtoMapperUTest {
 
     @Test
     void givenNullUser_whenMapToAuthResponseWithStatusMessage_thenReturnSimpleResponse() {
-
-        // Given
         boolean success = false;
 
-        // When
         AuthResponse response = DtoMapper.mapToAuthResponse(null, success, testMessage);
 
-        // Then
         assertNotNull(response);
         assertNull(response.getUsername());
         assertNull(response.getEmail());
@@ -152,14 +131,10 @@ public class DtoMapperUTest {
 
     @Test
     void whenMapToAuthResponseWithSuccessMessage_thenReturnSimpleResponseDTO() {
-
-        // Given
         boolean success = true;
 
-        // When
         AuthResponse response = DtoMapper.mapToAuthResponse(success, testMessage);
 
-        // Then
         assertNotNull(response);
         assertNull(response.getUsername());
         assertNull(response.getEmail());
@@ -169,32 +144,24 @@ public class DtoMapperUTest {
 
     @Test
     void givenNullMessage_whenMapToAuthResponse_thenUseEmptyString() {
-
-        // When
         AuthResponse response = DtoMapper.mapToAuthResponse(true, null);
 
-        // Then
         assertNotNull(response);
         assertEquals("", response.getMessage());
     }
 
     @Test
     void whenMapToVerification_thenReturnCorrectDTO() {
-
-        // Given
         boolean success = true;
 
-        // When
         VerificationResponse response = DtoMapper.mapToVerificationResponse(testUser, success, testMessage);
 
-        // Then
         assertNotNull(response);
         assertTrue(response.isSuccess());
         assertEquals(testMessage, response.getMessage());
         assertNotNull(response.getTimestamp());
         assertNotNull(response.getData());
 
-        // Verify the nested UserResponse in data
         UserResponse userData = (UserResponse) response.getData();
         assertEquals(testUser.getUsername(), userData.getUsername());
         assertEquals(testUser.getEmail(), userData.getEmail());
@@ -202,14 +169,10 @@ public class DtoMapperUTest {
 
     @Test
     void givenNullUser_whenMapToVerificationResponse_thenReturnResponseWithNullData() {
-
-        // Given
         boolean success = false;
 
-        // When
         VerificationResponse response = DtoMapper.mapToVerificationResponse(null, success, testMessage);
 
-        // Then
         assertNotNull(response);
         assertFalse(response.isSuccess());
         assertEquals(testMessage, response.getMessage());
@@ -217,50 +180,18 @@ public class DtoMapperUTest {
         assertNull(response.getData());
     }
 
-
     @Test
     void givenNullMessage_whenMapToVerificationResponse_thenUseEmptyString() {
-
-        // When
         VerificationResponse response = DtoMapper.mapToVerificationResponse(null, false, null);
 
-        // Then
         assertNotNull(response);
         assertEquals("", response.getMessage());
     }
 
     @Test
-    void whenMapToErrorResponse_thenReturnCorrectDTO() {
-
-        // When
-        ErrorResponse response = DtoMapper.mapToErrorResponse(testStatus, testMessage);
-
-        // Then
-        assertNotNull(response);
-        assertEquals(testStatus, response.getStatus());
-        assertEquals(testMessage, response.getMessage());
-        assertNotNull(response.getTimestamp());
-    }
-
-    @Test
-    void givenNullMessage_whenMapToErrorResponse_thenUseDefaultErrorMessage() {
-
-        // When
-        ErrorResponse response = DtoMapper.mapToErrorResponse(testStatus, null);
-
-        // Then
-        assertNotNull(response);
-        assertEquals(testStatus, response.getStatus());
-        assertEquals("An error occurred", response.getMessage());
-    }
-
-    @Test
     void whenMapToGenericResponse_thenReturnCorrectDTO() {
-
-        // When
         GenericResponse response = DtoMapper.mapToGenericResponse(testStatus, testMessage);
 
-        // Then
         assertNotNull(response);
         assertEquals(testStatus, response.getStatus());
         assertEquals(testMessage, response.getMessage());
@@ -269,11 +200,8 @@ public class DtoMapperUTest {
 
     @Test
     void givenNullMessage_whenMapToGenericResponse_thenUseEmptyString() {
-
-        // When
         GenericResponse response = DtoMapper.mapToGenericResponse(testStatus, null);
 
-        // Then
         assertNotNull(response);
         assertEquals(testStatus, response.getStatus());
         assertEquals("", response.getMessage());
@@ -281,14 +209,10 @@ public class DtoMapperUTest {
 
     @Test
     void whenMapToEmailVerificationResponse_thenReturnCorrectDTO() {
-
-        // Given
         boolean success = true;
 
-        // When
         EmailVerificationResponse response = DtoMapper.mapToEmailVerificationResponse(success, testMessage);
 
-        // Then
         assertNotNull(response);
         assertTrue(response.isSuccess());
         assertEquals(testMessage, response.getMessage());
@@ -297,11 +221,8 @@ public class DtoMapperUTest {
 
     @Test
     void givenNullMessage_whenMapToEmailVerificationResponse_thenUseEmptyString() {
-
-        // When
         EmailVerificationResponse response = DtoMapper.mapToEmailVerificationResponse(false, null);
 
-        // Then
         assertNotNull(response);
         assertEquals("", response.getMessage());
     }

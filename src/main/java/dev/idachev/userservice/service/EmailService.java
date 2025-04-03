@@ -33,6 +33,9 @@ public class EmailService {
     @Value("${app.service.url:http://localhost}")
     private String serviceUrl;
 
+    @Value("${contact.email.recipient:appsavorai@gmail.com}")
+    private String defaultContactRecipient;
+
     @Autowired
     public EmailService(JavaMailSender mailSender, TemplateEngine templateEngine) {
         this.mailSender = mailSender;
@@ -54,16 +57,6 @@ public class EmailService {
      * @param user User to send verification email to
      */
     public void sendVerificationEmail(User user) {
-        if (user == null) {
-            log.error("Cannot send verification email to null user");
-            throw new IllegalArgumentException("User cannot be null");
-        }
-
-        if (user.getEmail() == null || user.getEmail().trim().isEmpty()) {
-            log.error("Cannot send verification email to user with empty email");
-            throw new IllegalArgumentException("User email cannot be empty");
-        }
-
         sendVerificationEmail(user.getEmail(), user.getUsername(), user.getVerificationToken());
     }
 
@@ -75,15 +68,6 @@ public class EmailService {
      * @param verificationToken Verification token
      */
     public void sendVerificationEmail(String to, String username, String verificationToken) {
-        // Input validation
-        if (to == null || to.trim().isEmpty()) {
-            throw new IllegalArgumentException("Email address cannot be empty");
-        }
-
-        if (verificationToken == null || verificationToken.trim().isEmpty()) {
-            throw new IllegalArgumentException("Verification token cannot be empty");
-        }
-
         try {
             String verificationUrl = buildVerificationUrl(verificationToken);
             log.debug("Sending verification email to {} with URL: {}", to, verificationUrl);
@@ -95,7 +79,7 @@ public class EmailService {
 
             String emailContent = templateEngine.process("email/verification", context);
 
-            sendEmail(to, emailContent);
+            sendEmail(to, "Verify Your Email Address", emailContent);
             log.info("Verification email sent successfully to: {}", to);
         } catch (Exception e) {
             log.error("Failed to send verification email to: {} - Error: {}", to, e.getMessage(), e);
@@ -113,10 +97,6 @@ public class EmailService {
     public CompletableFuture<Void> sendVerificationEmailAsync(User user) {
         return CompletableFuture.runAsync(() -> {
             try {
-                if (user == null) {
-                    log.error("Async verification email failed: user is null");
-                    throw new IllegalArgumentException("User cannot be null for verification email");
-                }
                 sendVerificationEmail(user);
             } catch (Exception e) {
                 String email = user != null ? user.getEmail() : "null";
@@ -130,15 +110,16 @@ public class EmailService {
      * Helper method to send an email with HTML content
      *
      * @param to          Recipient email address
+     * @param subject     Email subject
      * @param htmlContent HTML content of the email
      * @throws MessagingException If there is an error creating or sending the email
      */
-    private void sendEmail(String to, String htmlContent) throws MessagingException {
+    private void sendEmail(String to, String subject, String htmlContent) throws MessagingException {
         MimeMessage message = mailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
 
         helper.setTo(to);
-        helper.setSubject("Verify Your Email Address");
+        helper.setSubject(subject);
         helper.setText(htmlContent, true);
 
         mailSender.send(message);
@@ -169,5 +150,68 @@ public class EmailService {
         String url = baseUrl + "/api/v1/verification/verify/" + token;
         log.debug("Built verification URL: {}", url);
         return url;
+    }
+
+    /**
+     * Sends contact form email to the default recipient
+     *
+     * @param fromEmail Sender's email address
+     * @param subject   Email subject
+     * @param message   Email message
+     */
+    public void sendContactFormEmail(String fromEmail, String subject, String message) {
+        sendContactFormEmail(defaultContactRecipient, fromEmail, subject, message);
+    }
+
+    /**
+     * Sends contact form email to a specified recipient
+     *
+     * @param to        Recipient email address
+     * @param fromEmail Sender's email address
+     * @param subject   Email subject
+     * @param message   Email message
+     */
+    public void sendContactFormEmail(String to, String fromEmail, String subject, String message) {
+        try {
+            // Use default recipient if none provided
+            String recipient = to != null ? to : defaultContactRecipient;
+
+            log.debug("Sending contact form email from {} to {}", fromEmail, recipient);
+
+            Context context = new Context();
+            context.setVariable("fromEmail", fromEmail);
+            context.setVariable("subject", subject);
+            context.setVariable("message", message);
+            context.setVariable("appName", appName);
+
+            String emailContent = templateEngine.process("email/contact-form", context);
+
+            sendEmail(recipient, "Contact Form: " + subject, emailContent);
+            log.info("Contact form email sent successfully from: {} to: {}", fromEmail, recipient);
+        } catch (Exception e) {
+            log.error("Failed to send contact form email from: {} to: {} - Error: {}", fromEmail, to, e.getMessage(), e);
+            throw new RuntimeException("Failed to send contact form email", e);
+        }
+    }
+
+    /**
+     * Sends contact form email asynchronously
+     *
+     * @param fromEmail Sender's email address
+     * @param subject   Email subject
+     * @param message   Email message
+     * @return CompletableFuture for tracking completion
+     */
+    @Async
+    public CompletableFuture<Void> sendContactFormEmailAsync(String fromEmail, String subject, String message) {
+        return CompletableFuture.runAsync(() -> {
+            try {
+                // No validation here - rely on DTO validation
+                sendContactFormEmail(fromEmail, subject, message);
+            } catch (Exception e) {
+                log.error("Async contact form email failed: {}", e.getMessage(), e);
+                // We don't rethrow in async context to avoid unhandled exceptions
+            }
+        });
     }
 } 

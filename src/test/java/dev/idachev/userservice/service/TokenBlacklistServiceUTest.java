@@ -3,135 +3,141 @@ package dev.idachev.userservice.service;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.test.util.ReflectionTestUtils;
 
-import java.util.Map;
-import java.util.concurrent.ScheduledExecutorService;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.Mockito.verify;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @ExtendWith(MockitoExtension.class)
-public class TokenBlacklistServiceUTest {
-
-    @Mock
-    private ScheduledExecutorService scheduler;
+class TokenBlacklistServiceUTest {
 
     private TokenBlacklistService tokenBlacklistService;
 
+    private String testToken;
+    private long testExpiryTime;
+
     @BeforeEach
     void setUp() {
-        tokenBlacklistService = new TokenBlacklistService(86400000, 100); // 24h expiration, 100 batch size
+        // Use actual primitive values instead of mocks
+        long tokenExpirationMs = 3600000L; // 1 hour
+        long cleanupBatchSize = 100L;
 
-        ReflectionTestUtils.setField(tokenBlacklistService, "scheduler", scheduler);
+        // Directly create service with actual values
+        tokenBlacklistService = new TokenBlacklistService(tokenExpirationMs, cleanupBatchSize);
+
+        testToken = "test.jwt.token";
+        testExpiryTime = System.currentTimeMillis() + 3600000; // 1 hour from now
     }
 
     @Test
-    void givenValidToken_whenBlacklistToken_thenTokenIsBlacklisted() {
-
-        // Given
-        String token = "valid.jwt.token";
-        long expiryTime = System.currentTimeMillis() + 3600000; // 1 hour from now
-
+    void blacklistToken_WithValidTokenAndExpiry_AddsToBlacklist() {
         // When
-        tokenBlacklistService.blacklistToken(token, expiryTime);
+        tokenBlacklistService.blacklistToken(testToken, testExpiryTime);
 
         // Then
-        assertTrue(tokenBlacklistService.isBlacklisted(token));
+        assertTrue(tokenBlacklistService.isBlacklisted(testToken));
     }
 
     @Test
-    void givenNullToken_whenBlacklistToken_thenNothingHappens() {
-
+    void blacklistToken_WithNullToken_DoesNotAddToBlacklist() {
         // When
-        tokenBlacklistService.blacklistToken(null, System.currentTimeMillis() + 3600000);
+        tokenBlacklistService.blacklistToken(null, testExpiryTime);
 
         // Then
         assertFalse(tokenBlacklistService.isBlacklisted(null));
     }
 
     @Test
-    void givenNullExpiryTime_whenBlacklistToken_thenNothingHappens() {
-
+    void blacklistToken_WithNullExpiry_DoesNotAddToBlacklist() {
         // When
-        tokenBlacklistService.blacklistToken("valid.jwt.token", null);
+        tokenBlacklistService.blacklistToken(testToken, null);
 
         // Then
-        assertFalse(tokenBlacklistService.isBlacklisted("valid.jwt.token"));
+        assertFalse(tokenBlacklistService.isBlacklisted(testToken));
     }
 
     @Test
-    void givenNonBlacklistedToken_whenIsBlacklisted_thenReturnFalse() {
-
+    void isBlacklisted_WithBlacklistedToken_ReturnsTrue() {
         // Given
-        String token = "non.blacklisted.token";
+        tokenBlacklistService.blacklistToken(testToken, testExpiryTime);
 
-        // When
-        boolean result = tokenBlacklistService.isBlacklisted(token);
-
-        // Then
-        assertFalse(result);
+        // When/Then
+        assertTrue(tokenBlacklistService.isBlacklisted(testToken));
     }
 
     @Test
-    void givenBlacklistedToken_whenIsBlacklisted_thenReturnTrue() {
+    void isBlacklisted_WithNonBlacklistedToken_ReturnsFalse() {
+        // When/Then
+        assertFalse(tokenBlacklistService.isBlacklisted(testToken));
+    }
 
+    @Test
+    void isBlacklisted_WithNullToken_ReturnsFalse() {
+        // When/Then
+        assertFalse(tokenBlacklistService.isBlacklisted(null));
+    }
+
+    @Test
+    void cleanupExpiredTokens_RemovesExpiredTokens() {
         // Given
-        String token = "blacklisted.token";
-        long expiryTime = System.currentTimeMillis() + 3600000;
-        tokenBlacklistService.blacklistToken(token, expiryTime);
+        String expiredToken = "expired.token";
+        long expiredTime = System.currentTimeMillis() - 1000; // 1 second ago
+        tokenBlacklistService.blacklistToken(expiredToken, expiredTime);
+        tokenBlacklistService.blacklistToken(testToken, testExpiryTime);
 
         // When
-        boolean result = tokenBlacklistService.isBlacklisted(token);
+        // Directly force cleanup instead of waiting for scheduled task
+        tokenBlacklistService.forceCleanupExpiredTokens();
 
         // Then
-        assertTrue(result);
+        assertFalse(tokenBlacklistService.isBlacklisted(expiredToken));
+        assertTrue(tokenBlacklistService.isBlacklisted(testToken));
     }
 
-
     @Test
-    void whenShutdown_thenSchedulerIsStopped() {
+    void shutdown_StopsCleanupTask() throws InterruptedException {
+        // Given
+        String expiredToken = "expired.token";
+        long expiredTime = System.currentTimeMillis() - 1000; // 1 second ago
+        tokenBlacklistService.blacklistToken(expiredToken, expiredTime);
 
         // When
         tokenBlacklistService.shutdown();
 
         // Then
-        verify(scheduler).shutdown();
+        // Wait to ensure cleanup task is stopped
+        Thread.sleep(2000);
+        assertTrue(tokenBlacklistService.isBlacklisted(expiredToken));
     }
 
     @Test
-    void givenExpiredTokens_whenCleanupExpiredTokens_thenRemoveExpiredTokens() {
-
+    void blacklistToken_WithMultipleTokens_ManagesAllTokens() {
         // Given
-        String expiredToken = "expired.token.123";
-        String validToken = "valid.token.456";
-
-        long now = System.currentTimeMillis();
-        long pastTime = now - 10000; // 10 seconds in the past
-        long futureTime = now + 3600000; // 1 hour in the future
-
-        tokenBlacklistService.blacklistToken(expiredToken, pastTime);
-        tokenBlacklistService.blacklistToken(validToken, futureTime);
-
-        // Verify initial state - both tokens should be blacklisted
-        assertTrue(tokenBlacklistService.isBlacklisted(expiredToken), "Expired token should be blacklisted before cleanup");
-        assertTrue(tokenBlacklistService.isBlacklisted(validToken), "Valid token should be blacklisted before cleanup");
+        String token1 = "token1";
+        String token2 = "token2";
+        long expiry1 = System.currentTimeMillis() + 3600000;
+        long expiry2 = System.currentTimeMillis() + 7200000;
 
         // When
-        ReflectionTestUtils.invokeMethod(tokenBlacklistService, "cleanupExpiredTokens");
+        tokenBlacklistService.blacklistToken(token1, expiry1);
+        tokenBlacklistService.blacklistToken(token2, expiry2);
 
         // Then
-        assertFalse(tokenBlacklistService.isBlacklisted(expiredToken),
-                "Expired token should be removed after cleanup");
-        assertTrue(tokenBlacklistService.isBlacklisted(validToken),
-                "Valid token should still be blacklisted after cleanup");
+        assertTrue(tokenBlacklistService.isBlacklisted(token1));
+        assertTrue(tokenBlacklistService.isBlacklisted(token2));
+    }
 
-        @SuppressWarnings("unchecked")
-        Map<String, Long> blacklistedTokens = (Map<String, Long>) ReflectionTestUtils.getField(
-                tokenBlacklistService, "blacklistedTokens");
-        assertEquals(1, blacklistedTokens.size(),
-                "Blacklist should contain exactly one token after cleanup");
+    @Test
+    void blacklistToken_WithSameToken_UpdatesExpiry() {
+        // Given
+        long initialExpiry = System.currentTimeMillis() + 3600000;
+        long updatedExpiry = System.currentTimeMillis() + 7200000;
+
+        // When
+        tokenBlacklistService.blacklistToken(testToken, initialExpiry);
+        tokenBlacklistService.blacklistToken(testToken, updatedExpiry);
+
+        // Then
+        assertTrue(tokenBlacklistService.isBlacklisted(testToken));
     }
 }

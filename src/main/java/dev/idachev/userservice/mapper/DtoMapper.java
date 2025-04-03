@@ -1,12 +1,18 @@
 package dev.idachev.userservice.mapper;
 
 import dev.idachev.userservice.model.User;
-import dev.idachev.userservice.web.dto.*;
+import dev.idachev.userservice.web.dto.AuthResponse;
+import dev.idachev.userservice.web.dto.GenericResponse;
+import dev.idachev.userservice.web.dto.UserResponse;
+import dev.idachev.userservice.web.dto.VerificationResponse;
 import lombok.experimental.UtilityClass;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
 
+/**
+ * Utility class for mapping between entities and DTOs
+ */
 @UtilityClass
 public final class DtoMapper {
 
@@ -24,9 +30,10 @@ public final class DtoMapper {
                 .id(user.getId())
                 .username(user.getUsername())
                 .email(user.getEmail())
+                .role(user.getRole().name())
+                .banned(user.isBanned())
                 .verified(user.isEnabled())
                 .verificationPending(user.isVerificationPending())
-                .role(user.getRole().name())
                 .createdOn(user.getCreatedOn())
                 .lastLogin(user.getLastLogin())
                 .build();
@@ -116,21 +123,6 @@ public final class DtoMapper {
     }
 
     /**
-     * Creates a generic error response with the specified status and message
-     *
-     * @param status  HTTP status code
-     * @param message Error message
-     * @return ErrorResponse with status information
-     */
-    public static ErrorResponse mapToErrorResponse(int status, String message) {
-        return ErrorResponse.builder()
-                .status(status)
-                .message(message != null ? message : "An error occurred")
-                .timestamp(LocalDateTime.now())
-                .build();
-    }
-
-    /**
      * Creates a generic response with the specified status and message
      *
      * @param status  HTTP status code
@@ -143,21 +135,6 @@ public final class DtoMapper {
                 .message(getNonNullMessage(message))
                 .timestamp(LocalDateTime.now())
                 .build();
-    }
-
-    /**
-     * Creates an email verification response
-     *
-     * @param success Whether the operation was successful
-     * @param message Response message
-     * @return EmailVerificationResponse with status information
-     */
-    public static EmailVerificationResponse mapToEmailVerificationResponse(boolean success, String message) {
-        return new EmailVerificationResponse(
-                success,
-                getNonNullMessage(message),
-                LocalDateTime.now()
-        );
     }
 
     /**

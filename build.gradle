@@ -66,6 +66,13 @@ dependencies {
     // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'com.h2database:h2'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    
+    // Exclude commons-logging from all dependencies
+    configurations.all {
+        exclude group: 'commons-logging', module: 'commons-logging'
+    }
 }
 
 // Test configuration

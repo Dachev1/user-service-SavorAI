@@ -24,10 +24,9 @@ spring:
       ddl-auto: update
     properties:
       hibernate:
-        format_sql: true
         dialect: org.hibernate.dialect.MySQLDialect
   
-  # Email service configuration
+  # Email configuration for contact form
   mail:
     host: smtp.gmail.com
     port: 587
@@ -48,8 +47,8 @@ app:
   frontend:
     url: http://localhost:5173
     routes:
-      login: /login
-      register: /register
+      login: /signin
+      register: /signup
 
 # Security configuration
 jwt:
@@ -85,4 +84,4 @@ springdoc:
     operationsSorter: method
     tagsSorter: alpha
     disable-swagger-default-url: true
-  packages-to-scan: dev.idachev.userservice.web 
+  packages-to-scan: dev.idachev.userservice.web

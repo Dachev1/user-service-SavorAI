@@ -1,0 +1,49 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=MYSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: sa
+  
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+    properties:
+      hibernate:
+        format_sql: true
+  
+  # Disable mail sending in tests
+  mail:
+    host: localhost
+    port: 3025
+    username: test
+    password: test
+    
+  # Disable Flyway for tests
+  flyway:
+    enabled: false
+  
+  # H2 Console configuration (useful for debugging)
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+# JWT configuration for tests
+jwt:
+  secret: testsecrettestsecrettestsecrettestsecrettestsecret
+  expiration: 86400000
+
+# Reduce token blacklist cleanup interval for faster tests
+token:
+  blacklist:
+    cleanup-interval: 1
+
+# Set lower logging level for tests
+logging:
+  level:
+    root: WARN
+    dev.idachev.userservice: INFO
+    org.springframework.test: INFO
+    org.hibernate.SQL: DEBUG 

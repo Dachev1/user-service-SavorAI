@@ -33,14 +33,22 @@ public class SecurityConfig {
 
     private static final String[] PUBLIC_ENDPOINTS = {
             // Authentication endpoints
-            "/api/v1/user/register",
-            "/api/v1/user/login",
-            "/api/v1/user/verify-email/**",
+            "/api/v1/auth/signin",
+            "/api/v1/auth/signup",
+            "/api/v1/auth/logout",
+            "/api/v1/auth/refresh-token",
+            "/api/v1/auth/check-status",
 
             // Verification endpoints
             "/api/v1/verification/status",
             "/api/v1/verification/resend",
             "/api/v1/verification/verify/**",
+
+            // User endpoints
+            "/api/v1/user/check-username",
+
+            // Contact form endpoint
+            "/api/v1/contact/submit",
 
             // Swagger UI and API docs
             "/swagger-ui/**",

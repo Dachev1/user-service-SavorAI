@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Contact Form Submission - SavorAI</title>
+    <style>
+        /* Base styles with better typography and colors */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f7f7f7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* Container with better responsive behavior */
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Header with gradient background and better spacing */
+        .header {
+            text-align: center;
+            padding: 30px 20px;
+            background: linear-gradient(135deg, #6B46C1 0%, #8A65FF 100%);
+            color: white;
+        }
+
+        /* Better logo styling */
+        .logo {
+            font-size: 28px;
+            font-weight: bold;
+            margin-bottom: 5px;
+            letter-spacing: 1px;
+        }
+
+        .logo span {
+            color: #FFD700;
+            font-weight: 800;
+        }
+
+        .header h1 {
+            margin: 10px 0 0;
+            font-size: 22px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.95);
+        }
+
+        /* Content area with better styling */
+        .content {
+            background-color: #ffffff;
+            padding: 30px;
+        }
+
+        /* Message details with more attractive styling */
+        .message-details {
+            background-color: #f9f9ff;
+            padding: 20px;
+            border-radius: 6px;
+            border-left: 4px solid #6B46C1;
+            margin-bottom: 25px;
+        }
+
+        /* Message content with better styling */
+        .message-content {
+            background-color: #ffffff;
+            padding: 25px;
+            border-radius: 6px;
+            border: 1px solid #eaeaea;
+            margin-top: 25px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+        }
+
+        /* Label styling */
+        .label {
+            font-weight: bold;
+            color: #6B46C1;
+            margin-right: 6px;
+        }
+
+        /* Message header with better styling */
+        .message-header {
+            font-size: 18px;
+            color: #6B46C1;
+            margin-bottom: 15px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #eaeaea;
+            font-weight: 600;
+        }
+
+        /* Button styling */
+        .button {
+            display: inline-block;
+            padding: 12px 24px;
+            background-color: #6B46C1;
+            color: white;
+            text-decoration: none;
+            border-radius: 50px;
+            font-weight: bold;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        /* Footer with better styling */
+        .footer {
+            text-align: center;
+            padding: 25px;
+            background-color: #f5f5f7;
+            color: #888;
+            font-size: 13px;
+            border-top: 1px solid #eaeaea;
+        }
+
+        /* Responsive adjustments */
+        @media screen and (max-width: 600px) {
+            .container {
+                width: 100%;
+                margin: 0;
+                border-radius: 0;
+            }
+
+            .content, .header, .footer {
+                padding: 20px 15px;
+            }
+        }
+
+        /* Timestamp styling */
+        .timestamp {
+            color: #999;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+
+        /* Contact data styling */
+        .contact-data {
+            font-weight: normal;
+            color: #444;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <!-- Enhanced header with better styling -->
+    <div class="header">
+        <div class="logo">Savor<span>AI</span></div>
+        <h1>New Contact Form Submission</h1>
+    </div>
+
+    <div class="content">
+        <!-- Greeting section -->
+        <p>Hello Team,</p>
+        <p>You have received a new message through the contact form on your website. Details are below:</p>
+
+        <!-- Enhanced message details with better styling -->
+        <div class="message-details">
+            <p>
+                <span class="label">From:</span>
+                <span class="contact-data" th:text="${fromEmail}">user@example.com</span>
+            </p>
+            <p>
+                <span class="label">Subject:</span>
+                <span class="contact-data" th:text="${subject}">Subject</span>
+            </p>
+            <p class="timestamp">
+                <span class="label">Received:</span>
+                <span class="contact-data" th:text="${#temporals.format(#temporals.createNow(), 'dd MMM yyyy, HH:mm')}">01 Jan 2023, 12:00</span>
+            </p>
+        </div>
+
+        <!-- Enhanced message content with better styling -->
+        <div class="message-content">
+            <div class="message-header">Message Content</div>
+            <p th:text="${message}" style="white-space: pre-line;">Message content goes here.</p>
+        </div>
+
+        <p style="margin-top: 25px;">
+            Please respond to this inquiry as soon as possible. Your prompt attention is appreciated.
+        </p>
+    </div>
+
+    <!-- Enhanced footer with better styling -->
+    <div class="footer">
+        <p>
+            &copy; <span th:text="${#temporals.format(#temporals.createNow(), 'yyyy')}">2023</span>
+            <span th:text="${appName}">SavorAI</span>. All rights reserved.
+        </p>
+        <p>This is an automated message. Please do not reply directly to this email.</p>
+
+    </div>
+</div>
+</body>
+</html> 

@@ -43,7 +43,7 @@ public class User {
     @Builder.Default
     private LocalDateTime updatedOn = LocalDateTime.now();
 
-    @Column
+    @Column()
     private LocalDateTime lastLogin;
 
     @Column
@@ -55,6 +55,9 @@ public class User {
     @Builder.Default
     private Role role = Role.USER;
 
+    @Column(nullable = false)
+    private boolean banned;
+
     @PrePersist
     protected void onCreate() {
         createdOn = LocalDateTime.now();
@@ -64,10 +67,6 @@ public class User {
     @PreUpdate
     protected void onUpdate() {
         updatedOn = LocalDateTime.now();
-    }
-
-    public void updateLastLogin() {
-        this.lastLogin = LocalDateTime.now();
     }
 
     public boolean isVerificationPending() {
