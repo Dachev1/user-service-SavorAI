@@ -70,7 +70,7 @@ public class ProfileController {
     @PutMapping("/profile")
     @Operation(
             summary = "Update user profile",
-            description = "Update user profile information including username and profile picture",
+            description = "Update user profile information including username",
             security = @SecurityRequirement(name = "bearerAuth")
     )
     @ApiResponses({
@@ -119,5 +119,14 @@ public class ProfileController {
     public ResponseEntity<UserResponse> getAuthProfileCompat() {
         log.info("Auth compatibility endpoint: Profile request received");
         return getProfile();
+    }
+
+    // Add endpoint for inter-service communication
+    @GetMapping("/user/current-user")
+    public ResponseEntity<UserResponse> getCurrentUser(@RequestHeader("Authorization") String token) {
+        log.info("Current user request received from service");
+        UserResponse user = profileService.getCurrentUserInfo();
+        log.info("Current user info retrieved for: {}", user.getUsername());
+        return ResponseEntity.ok(user);
     }
 } 

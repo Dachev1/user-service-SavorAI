@@ -26,6 +26,7 @@ public class TokenBlacklistService {
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
     private final long cleanupBatchSize;
     private final String jwtSecret;
+    private final java.security.Key signingKey;
 
     /**
      * Constructor with scheduled cleanup and configurable batch size
@@ -37,6 +38,10 @@ public class TokenBlacklistService {
 
         this.cleanupBatchSize = cleanupBatchSize;
         this.jwtSecret = jwtSecret;
+        
+        // Create key once during initialization
+        this.signingKey = io.jsonwebtoken.security.Keys.hmacShaKeyFor(
+            jwtSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
         // Schedule cleanup task to run at 1/4 of the token expiration time
         long cleanupIntervalSeconds = Math.max(tokenExpirationMs / (4 * 1000), 60);
@@ -137,9 +142,9 @@ public class TokenBlacklistService {
      */
     private String extractUserIdFromToken(String token) {
         try {
-            // Use JwtConfig's proper implementation for token parsing
+            // Use the pre-created signing key instead of creating a new one each time
             Claims claims = Jwts.parser()
-                    .setSigningKey(jwtSecret)
+                    .setSigningKey(signingKey)
                     .parseClaimsJws(token)
                     .getBody();
 

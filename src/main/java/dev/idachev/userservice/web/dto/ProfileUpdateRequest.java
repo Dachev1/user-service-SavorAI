@@ -13,16 +13,12 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class ProfileUpdateRequest {
-    @Schema(description = "New username", example = "newusername")
+    @Schema(description = "New username (optional)", example = "newusername")
     @Size(min = 3, max = 30, message = "Username must be between 3 and 30 characters")
     @Pattern(regexp = "^[a-zA-Z0-9_-]+$", message = "Username can only contain letters, numbers, underscores, and hyphens")
     private String username;
 
-    @Schema(description = "Current password for verification", example = "currentPassword123")
+    @Schema(description = "Current password (required to verify identity)", example = "currentPassword123")
     @Size(min = 8, message = "Password must be at least 8 characters long")
     private String currentPassword;
-
-    @Schema(description = "New password", example = "newPassword123")
-    @Size(min = 8, message = "Password must be at least 8 characters long")
-    private String newPassword;
 }

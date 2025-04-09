@@ -33,7 +33,7 @@ public class ProfileService {
     @Autowired
     public ProfileService(UserRepository userRepository,
                           UserDetailsService userDetailsService,
-                          CacheManager cacheManager) {
+                          CacheManager cacheManager){
         this.userRepository = userRepository;
         this.userDetailsService = userDetailsService;
         this.cacheManager = cacheManager;
@@ -81,16 +81,17 @@ public class ProfileService {
         User user = findByUsername(currentUsername);
         boolean usernameChanged = false;
 
-        // Handle username change
-        if (request.getUsername() != null && !request.getUsername().equals(currentUsername)) {
+        // Handle username change if requested
+        if (request.getUsername() != null && !request.getUsername().isEmpty() && !request.getUsername().equals(currentUsername)) {
             if (userRepository.existsByUsername(request.getUsername())) {
                 throw new IllegalArgumentException("Username is already taken");
             }
+            log.info("Username change requested from '{}' to '{}'", currentUsername, request.getUsername());
             usernameChanged = true;
             user.setUsername(request.getUsername());
         }
 
-        // Profile picture update functionality is not yet implemented
+        // Avatar handling code removed
 
         User savedUser = userRepository.save(user);
         log.info("Profile updated successfully for user: {}", currentUsername);

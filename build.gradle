@@ -63,6 +63,12 @@ dependencies {
     compileOnly "org.projectlombok:lombok:${lombokVersion}"
     annotationProcessor "org.projectlombok:lombok:${lombokVersion}"
 
+    // Cloud integration - Cloudinary
+    implementation('com.cloudinary:cloudinary-http44:1.34.0') {
+        // Exclude commons-logging from Cloudinary HTTP44
+        exclude group: 'commons-logging', module: 'commons-logging'
+    }
+
     // Testing
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.security:spring-security-test'

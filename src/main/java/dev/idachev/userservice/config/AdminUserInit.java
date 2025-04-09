@@ -42,7 +42,7 @@ public class AdminUserInit implements CommandLineRunner {
         User adminUser = User.builder()
                 .username(username)
                 .email(email)
-                .password(passwordEncoder.encode("123456789"))
+                .password(passwordEncoder.encode("123123123"))
                 .role(Role.ADMIN)
                 .enabled(true) // Pre-verified
                 .createdOn(LocalDateTime.now())

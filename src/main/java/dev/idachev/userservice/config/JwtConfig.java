@@ -15,6 +15,7 @@ import java.security.Key;
 import java.util.Date;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.Base64;
 
 
 @Slf4j
@@ -32,11 +33,22 @@ public class JwtConfig {
 
     @PostConstruct
     public void init() {
-        // Use the HMAC-SHA384 algorithm to sign tokens (matching the recipe-service)
-        byte[] secretBytes = secret.getBytes(StandardCharsets.UTF_8);
-        this.signingKey = Keys.hmacShaKeyFor(secretBytes);
-
-        log.info("JWT signing key initialized successfully with algorithm: {}", "HS384");
+        try {
+            byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
+            int keyBitSize = keyBytes.length * 8;
+            
+            // For HS384, need at least 384 bits
+            if (keyBitSize < 384) {
+                log.warn("JWT secret too small: {} bits < 384 bits - generating secure key", keyBitSize);
+                this.signingKey = Keys.secretKeyFor(SignatureAlgorithm.HS384);
+            } else {
+                this.signingKey = Keys.hmacShaKeyFor(keyBytes);
+                log.info("JWT key initialized: {} bits", keyBitSize);
+            }
+        } catch (Exception e) {
+            log.error("JWT key init error: {}", e.getMessage());
+            this.signingKey = Keys.secretKeyFor(SignatureAlgorithm.HS384);
+        }
     }
 
     /**
