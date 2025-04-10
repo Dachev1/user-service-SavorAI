@@ -8,24 +8,22 @@ import jakarta.validation.constraints.Size;
 import lombok.*;
 
 /**
- * Data Transfer Object for sign-in requests
+ * Data Transfer Object for user sign in requests
  */
 @Data
 @Builder
-@Getter
-@Setter
 @NoArgsConstructor
 @AllArgsConstructor
-@Schema(description = "Sign-in request parameters")
+@Schema(description = "Request payload for user sign in")
 public class SignInRequest {
 
     @NotBlank(message = "Username or email cannot be empty")
-    @Size(max = 100, message = "Username or email must not exceed 100 characters")
-    @Schema(description = "User's email address or username", example = "john.doe@example.com or johndoe")
-    @JsonAlias("email") // Support legacy frontend requests still using "email" field
+    @Size(min = 3, max = 100, message = "Username or email must be between 3 and 100 characters")
+    @Schema(description = "User's username or email address", example = "johndoe")
     private String identifier;
 
     @NotBlank(message = "Password cannot be empty")
-    @Schema(description = "User's password", example = "password123")
+    @Size(min = 6, message = "Password must be at least 6 characters")
+    @Schema(description = "User's password", example = "Password123!")
     private String password;
 } 

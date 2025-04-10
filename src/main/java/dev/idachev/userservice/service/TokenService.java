@@ -15,8 +15,7 @@ import java.util.Date;
 import java.util.UUID;
 
 /**
- * Implementation of TokenService
- * Following the Dependency Inversion Principle - implements an abstraction
+ * Service for JWT token management
  */
 @Service
 @Slf4j
@@ -74,7 +73,6 @@ public class TokenService {
      * @param token JWT token
      * @return Username
      */
-
     public String extractUsername(String token) {
         return jwtConfig.extractUsername(token);
     }
@@ -85,7 +83,6 @@ public class TokenService {
      * @param token JWT token
      * @return Expiration date
      */
-
     public Date extractExpiration(String token) {
         return jwtConfig.extractExpiration(token);
     }

@@ -30,7 +30,7 @@ class AdminUserInitTest {
 
     private final String testUsername = "Ivan";
     private final String testEmail = "pffe3e@gmail.com";
-    private final String testPassword = "123456789";
+    private final String testPassword = "123123123";
     private final String encodedPassword = "encoded_password";
 
     @Test

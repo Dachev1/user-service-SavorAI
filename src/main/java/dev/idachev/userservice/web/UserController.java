@@ -7,16 +7,19 @@ import dev.idachev.userservice.web.dto.AuthResponse;
 import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.UserResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -26,16 +29,16 @@ import java.util.UUID;
 /**
  * Controller for user management operations
  */
-@Slf4j
 @RestController
 @RequestMapping("/api/v1")
 @Tag(name = "User Management", description = "Endpoints for user management")
+@Slf4j
+@Validated
 public class UserController {
 
     private final UserService userService;
     private final TokenService tokenService;
 
-    @Autowired
     public UserController(UserService userService, TokenService tokenService) {
         this.userService = userService;
         this.tokenService = tokenService;

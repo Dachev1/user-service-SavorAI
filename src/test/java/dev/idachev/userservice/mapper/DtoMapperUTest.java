@@ -55,7 +55,7 @@ public class DtoMapperUTest {
         assertEquals(testUser.getEmail(), response.getEmail());
         assertTrue(response.isVerified());
         assertFalse(response.isVerificationPending());
-        assertEquals(Role.USER, response.getRole());
+        assertEquals(Role.USER.name(), response.getRole());
         assertEquals(testUser.getCreatedOn(), response.getCreatedOn());
         assertEquals(testUser.getLastLogin(), response.getLastLogin());
     }
@@ -204,26 +204,6 @@ public class DtoMapperUTest {
 
         assertNotNull(response);
         assertEquals(testStatus, response.getStatus());
-        assertEquals("", response.getMessage());
-    }
-
-    @Test
-    void whenMapToEmailVerificationResponse_thenReturnCorrectDTO() {
-        boolean success = true;
-
-        EmailVerificationResponse response = DtoMapper.mapToEmailVerificationResponse(success, testMessage);
-
-        assertNotNull(response);
-        assertTrue(response.isSuccess());
-        assertEquals(testMessage, response.getMessage());
-        assertNotNull(response.getTimestamp());
-    }
-
-    @Test
-    void givenNullMessage_whenMapToEmailVerificationResponse_thenUseEmptyString() {
-        EmailVerificationResponse response = DtoMapper.mapToEmailVerificationResponse(false, null);
-
-        assertNotNull(response);
         assertEquals("", response.getMessage());
     }
 }

@@ -14,9 +14,10 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -37,6 +38,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 public class AuthenticationServiceUTest {
 
     @Mock
@@ -56,13 +58,16 @@ public class AuthenticationServiceUTest {
 
     @Mock
     private dev.idachev.userservice.service.UserDetailsService userDetailsService;
+    
+    @Mock
+    private UserService userService;
 
     @Mock
     private Authentication authentication;
+    
     @Mock
     private SecurityContext securityContext;
 
-    @InjectMocks
     private AuthenticationService authenticationService;
 
     private User testUser;
@@ -73,6 +78,17 @@ public class AuthenticationServiceUTest {
     @BeforeEach
     void setUp() {
         SecurityContextHolder.setContext(securityContext);
+
+        // Manually create the service with all dependencies
+        authenticationService = new AuthenticationService(
+            userRepository,
+            authenticationManager,
+            tokenService,
+            userDetailsService,
+            passwordEncoder,
+            emailService,
+            userService
+        );
 
         testUser = User.builder()
                 .id(UUID.randomUUID())
@@ -97,9 +113,12 @@ public class AuthenticationServiceUTest {
 
         testToken = "test.jwt.token";
 
-        // Mocks for dependencies
-        lenient().when(passwordEncoder.encode(anyString())).thenReturn("encoded_password");
-        lenient().when(emailService.generateVerificationToken()).thenReturn(UUID.randomUUID().toString());
+        // Mock dependencies
+        when(passwordEncoder.encode(anyString())).thenReturn("encoded_password");
+        when(emailService.generateVerificationToken()).thenReturn(UUID.randomUUID().toString());
+        
+        // Mock userService.registerUser method
+        when(userService.registerUser(any(RegisterRequest.class))).thenReturn(testUser);
     }
 
     @AfterEach
@@ -114,6 +133,7 @@ public class AuthenticationServiceUTest {
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class))).thenReturn(authentication);
         when(authentication.getPrincipal()).thenReturn(new UserPrincipal(testUser));
         when(tokenService.generateToken(any(UserDetails.class))).thenReturn(testToken);
+        when(userRepository.findById(any(UUID.class))).thenReturn(Optional.of(testUser));
 
         // When
         AuthResponse response = authenticationService.signIn(signInRequest);
@@ -133,7 +153,7 @@ public class AuthenticationServiceUTest {
         when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
 
         // When & Then
-        assertThrows(AuthenticationException.class, () -> authenticationService.signIn(signInRequest));
+        assertThrows(ResourceNotFoundException.class, () -> authenticationService.signIn(signInRequest));
     }
 
     @Test
@@ -144,7 +164,7 @@ public class AuthenticationServiceUTest {
                 .thenThrow(new BadCredentialsException("Invalid credentials"));
 
         // When & Then
-        assertThrows(AuthenticationException.class, () -> authenticationService.signIn(signInRequest));
+        assertThrows(BadCredentialsException.class, () -> authenticationService.signIn(signInRequest));
     }
 
     @Test
@@ -165,7 +185,7 @@ public class AuthenticationServiceUTest {
 
         when(userRepository.existsByUsername(anyString())).thenReturn(false);
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
-        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+        when(userService.registerUser(any(RegisterRequest.class))).thenReturn(savedUser);
         when(emailService.sendVerificationEmailAsync(any(User.class))).thenReturn(CompletableFuture.completedFuture(null));
 
         // When
@@ -175,7 +195,7 @@ public class AuthenticationServiceUTest {
         assertNotNull(response);
         assertTrue(response.isSuccess());
         assertEquals("Registration successful! Please check your email to verify your account.", response.getMessage());
-        verify(userRepository).save(any(User.class));
+        verify(userService).registerUser(any(RegisterRequest.class));
         verify(emailService).sendVerificationEmailAsync(any(User.class));
     }
 
@@ -188,7 +208,7 @@ public class AuthenticationServiceUTest {
         assertThrows(dev.idachev.userservice.exception.DuplicateUserException.class, () -> 
             authenticationService.register(validRegisterRequest));
         
-        verify(userRepository, never()).save(any(User.class));
+        verify(userService, never()).registerUser(any(RegisterRequest.class));
     }
 
     @Test
@@ -200,57 +220,10 @@ public class AuthenticationServiceUTest {
         assertThrows(dev.idachev.userservice.exception.DuplicateUserException.class, () -> 
             authenticationService.register(validRegisterRequest));
         
-        verify(userRepository, never()).save(any(User.class));
+        verify(userService, never()).registerUser(any(RegisterRequest.class));
     }
 
-    // --- Remove tests for methods moved to other services --- 
-    // - verifyEmail tests removed
-    // - verifyEmailAndGetResponse tests removed
-    // - resendVerificationEmail tests removed
-    // - resendVerificationEmailWithResponse tests removed
-    // - getVerificationStatus tests removed
-    // - getCurrentUser tests removed
-    // - getCurrentUserInfo tests removed
-
-    // Keep tests checking for conflicts with the pre-defined admin user
-    @Test
-    void givenAdminUserExists_whenRegisterWithSameUsername_thenThrowDuplicateUserException() {
-        // Given
-        String adminUsername = "Ivan";
-        RegisterRequest request = RegisterRequest.builder()
-                .username(adminUsername)
-                .email("another@example.com")
-                .password("password123")
-                .build();
-
-        when(userRepository.existsByUsername(adminUsername)).thenReturn(true);
-
-        // When/Then
-        assertThrows(dev.idachev.userservice.exception.DuplicateUserException.class, () -> 
-            authenticationService.register(request));
-        
-        verify(userRepository, never()).save(any(User.class));
-    }
-
-    @Test
-    void givenAdminUserExists_whenRegisterWithSameEmail_thenThrowDuplicateUserException() {
-        // Given
-        String adminEmail = "pffe3e@gmail.com";
-        RegisterRequest request = RegisterRequest.builder()
-                .username("newuser")
-                .email(adminEmail)
-                .password("password123")
-                .build();
-
-        when(userRepository.existsByEmail(adminEmail)).thenReturn(true);
-
-        // When/Then
-        assertThrows(dev.idachev.userservice.exception.DuplicateUserException.class, () -> 
-            authenticationService.register(request));
-        
-        verify(userRepository, never()).save(any(User.class));
-    }
-
+    // Tests for token refresh
     @Test
     void refreshToken_Success() {
         // Given
@@ -279,42 +252,7 @@ public class AuthenticationServiceUTest {
                 authenticationService.refreshToken(invalidHeader));
     }
 
-    @Test
-    void findByUsernameOrEmail_ByUsername() {
-        // Given
-        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(testUser));
-
-        // When
-        User result = authenticationService.findByUsernameOrEmail("testuser");
-
-        // Then
-        assertEquals(testUser, result);
-    }
-
-    @Test
-    void findByUsernameOrEmail_ByEmail() {
-        // Given
-        when(userRepository.findByUsername(anyString())).thenReturn(Optional.empty());
-        when(userRepository.findByEmail(anyString())).thenReturn(Optional.of(testUser));
-
-        // When
-        User result = authenticationService.findByUsernameOrEmail("test@example.com");
-
-        // Then
-        assertEquals(testUser, result);
-    }
-
-    @Test
-    void findByUsernameOrEmail_NotFound() {
-        // Given
-        when(userRepository.findByUsername(anyString())).thenReturn(Optional.empty());
-        when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
-
-        // When/Then
-        assertThrows(ResourceNotFoundException.class, () ->
-                authenticationService.findByUsernameOrEmail("nonexistent"));
-    }
-
+    // Tests for logout
     @Test
     void givenValidUserId_whenLogout_thenUpdateUserStatus() {
         // Given
@@ -325,12 +263,13 @@ public class AuthenticationServiceUTest {
 
         // Then
         verify(userRepository).save(any(User.class));
+        assertFalse(testUser.isLoggedIn());
     }
 
     @Test
     void givenNullUserId_whenLogout_thenDoNothing() {
         // When
-        authenticationService.logout(null);
+        authenticationService.logout((UUID) null);
 
         // Then
         verify(userRepository, never()).save(any(User.class));

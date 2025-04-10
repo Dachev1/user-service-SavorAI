@@ -6,13 +6,13 @@ import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.VerificationResponse;
 import dev.idachev.userservice.web.dto.VerificationResult;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
@@ -37,7 +37,6 @@ public class VerificationController {
     @Value("${app.frontend.routes.login:/signin}")
     private String signinRoute;
 
-    @Autowired
     public VerificationController(VerificationService verificationService) {
         this.verificationService = verificationService;
     }

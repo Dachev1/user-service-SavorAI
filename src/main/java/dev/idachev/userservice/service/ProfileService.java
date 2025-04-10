@@ -30,10 +30,9 @@ public class ProfileService {
     private final UserDetailsService userDetailsService;
     private final CacheManager cacheManager;
 
-    @Autowired
     public ProfileService(UserRepository userRepository,
                           UserDetailsService userDetailsService,
-                          CacheManager cacheManager){
+                          CacheManager cacheManager) {
         this.userRepository = userRepository;
         this.userDetailsService = userDetailsService;
         this.cacheManager = cacheManager;

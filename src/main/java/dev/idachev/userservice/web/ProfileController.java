@@ -10,7 +10,6 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -19,15 +18,14 @@ import org.springframework.web.bind.annotation.*;
 /**
  * Controller for user profile operations
  */
-@Slf4j
 @RestController
-@RequestMapping("/api/v1")
-@Tag(name = "User Profile", description = "Endpoints for managing user profiles")
+@RequestMapping("/api/v1/profile")
+@Tag(name = "Profile", description = "User profile endpoints")
+@Slf4j
 public class ProfileController {
 
     private final ProfileService profileService;
 
-    @Autowired
     public ProfileController(ProfileService profileService) {
         this.profileService = profileService;
     }

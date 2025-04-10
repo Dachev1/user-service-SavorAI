@@ -89,7 +89,7 @@ class UserServiceUTest {
     void setUserRole_WithValidData_UpdatesRole() {
         // Given
         when(userRepository.findById(any(UUID.class))).thenReturn(Optional.of(testUser));
-        when(userRepository.save(any(User.class))).thenReturn(testUser);
+        when(userRepository.saveAndFlush(any(User.class))).thenReturn(testUser);
 
         // When
         GenericResponse result = userService.setUserRole(testUserId, Role.ADMIN);
@@ -98,7 +98,7 @@ class UserServiceUTest {
         assertNotNull(result);
         assertTrue(result.isSuccess());
         assertEquals(200, result.getStatus());
-        verify(userRepository).save(any(User.class));
+        verify(userRepository).saveAndFlush(any(User.class));
     }
 
     @Test

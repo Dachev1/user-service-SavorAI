@@ -15,7 +15,6 @@ import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
 import dev.idachev.userservice.web.dto.RegisterRequest;
 import dev.idachev.userservice.web.dto.UserResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -40,15 +39,14 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private final UserRepository userRepository;
-    private final dev.idachev.userservice.service.UserDetailsService userDetailsService;
+    private final UserDetailsService userDetailsService;
     private final CacheManager cacheManager;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final TokenService tokenService;
 
-    @Autowired
     public UserService(UserRepository userRepository,
-                      dev.idachev.userservice.service.UserDetailsService userDetailsService,
+                      UserDetailsService userDetailsService,
                       CacheManager cacheManager, 
                       PasswordEncoder passwordEncoder,
                       EmailService emailService,

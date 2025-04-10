@@ -5,8 +5,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -25,11 +23,15 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 
+/**
+ * Filter for validating JWT tokens in incoming requests
+ */
 @Component
+@Slf4j
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
 
@@ -57,7 +59,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             JwtConfig jwtConfig,
             UserDetailsService userDetailsService,
             TokenBlacklistService tokenBlacklistService) {
-
         this.jwtConfig = jwtConfig;
         this.userDetailsService = userDetailsService;
         this.tokenBlacklistService = tokenBlacklistService;
@@ -70,7 +71,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // Always skip filtering for logout requests (GET or POST)
         if (requestPath.startsWith("/api/v1/auth/logout")) {
-            logger.debug("Skipping JWT filter for logout request: {} {}", method, requestPath);
+            log.debug("Skipping JWT filter for logout request: {} {}", method, requestPath);
             return true;
         }
 
@@ -96,7 +97,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 authenticateWithToken(jwtToken, request);
             }
         } catch (Exception e) {
-            logger.error("Cannot set user authentication: {}", e.getMessage());
+            log.error("Cannot set user authentication: {}", e.getMessage());
         }
 
         filterChain.doFilter(request, response);
@@ -120,7 +121,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String tokenUsername = jwtConfig.extractUsername(jwtToken);
 
             if (userId == null) {
-                logger.warn("Token has no user ID");
+                log.warn("Token has no user ID");
                 return;
             }
 
@@ -136,18 +137,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
                 // Log username information for debugging
                 String currentUsername = userDetails.getUsername();
-                logger.debug("Authenticated user: {}", currentUsername);
+                log.debug("Authenticated user: {}", currentUsername);
 
                 // Only log username mismatch if needed
                 if (!currentUsername.equals(tokenUsername)) {
-                    logger.debug("Note: Token username '{}' differs from current username '{}'",
+                    log.debug("Note: Token username '{}' differs from current username '{}'",
                             tokenUsername, currentUsername);
                 }
             }
         } catch (UsernameNotFoundException e) {
-            logger.warn("User not found for token: {}", e.getMessage());
+            log.warn("User not found for token: {}", e.getMessage());
         } catch (Exception e) {
-            logger.warn("Token validation failed: {}", e.getMessage());
+            log.warn("Token validation failed: {}", e.getMessage());
         }
     }
 

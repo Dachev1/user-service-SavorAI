@@ -1,17 +1,14 @@
 package dev.idachev.userservice.web;
 
 import dev.idachev.userservice.service.EmailService;
+import dev.idachev.userservice.web.dto.ContactFormRequest;
 import dev.idachev.userservice.web.dto.GenericResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Email;
-import jakarta.validation.constraints.NotBlank;
-import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -32,22 +29,8 @@ public class ContactController {
 
     private final EmailService emailService;
 
-    @Autowired
     public ContactController(EmailService emailService) {
         this.emailService = emailService;
-    }
-
-    @Data
-    public static class ContactFormRequest {
-        @Email(message = "Email must be valid")
-        @NotBlank(message = "Email cannot be empty")
-        private String email;
-
-        @NotBlank(message = "Subject cannot be empty")
-        private String subject;
-
-        @NotBlank(message = "Message cannot be empty")
-        private String message;
     }
 
     /**

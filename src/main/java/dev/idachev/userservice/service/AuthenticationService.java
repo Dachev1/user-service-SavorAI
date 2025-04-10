@@ -12,7 +12,6 @@ import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.RegisterRequest;
 import dev.idachev.userservice.web.dto.SignInRequest;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -42,7 +41,6 @@ public class AuthenticationService {
     private final EmailService emailService;
     private final UserService userService;
 
-    @Autowired
     public AuthenticationService(
             UserRepository userRepository,
             AuthenticationManager authenticationManager,

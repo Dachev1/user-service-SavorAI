@@ -8,17 +8,22 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+/**
+ * Data Transfer Object for profile update requests
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Schema(description = "Request payload for profile updates")
 public class ProfileUpdateRequest {
-    @Schema(description = "New username (optional)", example = "newusername")
-    @Size(min = 3, max = 30, message = "Username must be between 3 and 30 characters")
-    @Pattern(regexp = "^[a-zA-Z0-9_-]+$", message = "Username can only contain letters, numbers, underscores, and hyphens")
+
+    @Size(min = 3, max = 50, message = "Username must be between 3 and 50 characters")
+    @Pattern(regexp = "^[a-zA-Z0-9._-]+$", message = "Username can only contain letters, numbers, dots, underscores, and hyphens")
+    @Schema(description = "New username (3-50 characters)", example = "new_username")
     private String username;
 
-    @Schema(description = "Current password (required to verify identity)", example = "currentPassword123")
-    @Size(min = 8, message = "Password must be at least 8 characters long")
+    @Size(min = 6, message = "Current password must be at least 6 characters")
+    @Schema(description = "Current password for verification", example = "Password123!")
     private String currentPassword;
 }

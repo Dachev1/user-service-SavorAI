@@ -10,7 +10,6 @@ import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.VerificationResponse;
 import dev.idachev.userservice.web.dto.VerificationResult;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,7 +27,6 @@ public class VerificationService {
     private final EmailService emailService;
     private final TokenService tokenService;
 
-    @Autowired
     public VerificationService(UserRepository userRepository, 
                               EmailService emailService, 
                               TokenService tokenService) {
