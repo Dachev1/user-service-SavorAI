@@ -9,7 +9,7 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.thymeleaf.TemplateEngine;
+import org.thymeleaf.spring6.SpringTemplateEngine;
 import org.thymeleaf.context.Context;
 
 import java.util.Optional;
@@ -24,7 +24,7 @@ import java.util.concurrent.CompletableFuture;
 public class EmailService {
 
     private final JavaMailSender mailSender;
-    private final TemplateEngine templateEngine;
+    private final SpringTemplateEngine templateEngine;
 
     @Value("${spring.application.name:SavorAI}")
     private String appName;
@@ -41,7 +41,7 @@ public class EmailService {
     @Value("${spring.mail.username}")
     private String fromEmail;
 
-    public EmailService(JavaMailSender mailSender, TemplateEngine templateEngine) {
+    public EmailService(JavaMailSender mailSender, SpringTemplateEngine templateEngine) {
         this.mailSender = mailSender;
         this.templateEngine = templateEngine;
     }

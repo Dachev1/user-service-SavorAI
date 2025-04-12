@@ -39,6 +39,7 @@ public class DtoMapperUTest {
                 .enabled(true)
                 .verificationToken(null)
                 .role(Role.USER)
+                .banned(false)
                 .createdOn(LocalDateTime.now().minusDays(1))
                 .updatedOn(LocalDateTime.now().minusHours(1))
                 .lastLogin(testDate)
@@ -55,9 +56,34 @@ public class DtoMapperUTest {
         assertEquals(testUser.getEmail(), response.getEmail());
         assertTrue(response.isVerified());
         assertFalse(response.isVerificationPending());
+        assertFalse(response.isBanned());
         assertEquals(Role.USER.name(), response.getRole());
         assertEquals(testUser.getCreatedOn(), response.getCreatedOn());
         assertEquals(testUser.getLastLogin(), response.getLastLogin());
+    }
+
+    @Test
+    void whenMapBannedUserToUserResponse_thenReturnUserResponseWithBannedTrue() {
+        User bannedUser = User.builder()
+                .id(testId)
+                .username("bannedUser")
+                .email("banned@example.com")
+                .password("encoded_password")
+                .enabled(true)
+                .verificationToken(null)
+                .role(Role.USER)
+                .banned(true)
+                .createdOn(LocalDateTime.now().minusDays(1))
+                .updatedOn(LocalDateTime.now().minusHours(1))
+                .lastLogin(testDate)
+                .build();
+
+        UserResponse response = DtoMapper.mapToUserResponse(bannedUser);
+
+        assertNotNull(response);
+        assertEquals(bannedUser.getUsername(), response.getUsername());
+        assertEquals(bannedUser.getEmail(), response.getEmail());
+        assertTrue(response.isBanned());
     }
 
     @Test
@@ -82,6 +108,10 @@ public class DtoMapperUTest {
         assertEquals(testToken, response.getToken());
         assertTrue(response.isSuccess());
         assertEquals("", response.getMessage());
+        
+        // Verify user data includes ban status
+        assertNotNull(response.getUser());
+        assertFalse(response.getUser().isBanned());
     }
 
     @Test
@@ -165,6 +195,7 @@ public class DtoMapperUTest {
         UserResponse userData = (UserResponse) response.getData();
         assertEquals(testUser.getUsername(), userData.getUsername());
         assertEquals(testUser.getEmail(), userData.getEmail());
+        assertEquals(testUser.isBanned(), userData.isBanned());
     }
 
     @Test

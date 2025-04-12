@@ -9,7 +9,6 @@ import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
 import dev.idachev.userservice.web.dto.UserResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,7 +24,7 @@ import java.util.Optional;
 @Service
 @Slf4j
 public class ProfileService {
-
+    
     private final UserRepository userRepository;
     private final UserDetailsService userDetailsService;
     private final CacheManager cacheManager;
@@ -44,12 +43,22 @@ public class ProfileService {
     public User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
-        if (!isAuthenticatedUser(authentication)) {
+        if (authentication == null || !authentication.isAuthenticated()) {
             throw new AuthenticationException("User not authenticated");
         }
 
-        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
-        return userPrincipal.user();
+        // First call to getPrincipal()
+        Object principal = authentication.getPrincipal();
+        if ("anonymousUser".equals(principal)) {
+            throw new AuthenticationException("User not authenticated");
+        }
+
+        if (!(principal instanceof UserPrincipal)) {
+            throw new AuthenticationException("Invalid authentication principal type");
+        }
+
+        // Second call to getPrincipal() - only if we didn't throw earlier
+        return ((UserPrincipal) authentication.getPrincipal()).user();
     }
 
     /**

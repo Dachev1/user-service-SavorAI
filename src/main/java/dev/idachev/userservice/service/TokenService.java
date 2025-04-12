@@ -31,6 +31,16 @@ public class TokenService {
     }
 
     /**
+     * Extracts JWT token without the Bearer prefix
+     */
+    private String extractJwtToken(String token) {
+        if (token != null && token.startsWith("Bearer ")) {
+            return token.substring(7);
+        }
+        return token;
+    }
+
+    /**
      * Generates a JWT token for a user
      *
      * @param userDetails User details
@@ -48,13 +58,22 @@ public class TokenService {
      * @return True if token is valid
      */
     public boolean validateToken(String token, UserDetails userDetails) {
-        // First check if token is blacklisted
-        if (isTokenBlacklisted(token)) {
+        String jwtToken = extractJwtToken(token);
+
+        if (isTokenBlacklisted(jwtToken)) {
             return false;
         }
 
-        // If not blacklisted, proceed with normal validation
-        return jwtConfig.validateToken(token, userDetails);
+        // Check if this user's tokens have been invalidated
+        if (userDetails instanceof UserPrincipal userPrincipal) {
+            User user = userPrincipal.user();
+            String userInvalidationKey = "user_tokens_invalidated:" + user.getId().toString();
+            if (tokenBlacklistService.isBlacklisted(userInvalidationKey)) {
+                return false;
+            }
+        }
+
+        return jwtConfig.validateToken(jwtToken, userDetails);
     }
 
     /**
@@ -64,7 +83,7 @@ public class TokenService {
      * @return User ID
      */
     public UUID extractUserId(String token) {
-        return jwtConfig.extractUserId(token);
+        return jwtConfig.extractUserId(extractJwtToken(token));
     }
 
     /**
@@ -74,7 +93,7 @@ public class TokenService {
      * @return Username
      */
     public String extractUsername(String token) {
-        return jwtConfig.extractUsername(token);
+        return jwtConfig.extractUsername(extractJwtToken(token));
     }
 
     /**
@@ -84,7 +103,7 @@ public class TokenService {
      * @return Expiration date
      */
     public Date extractExpiration(String token) {
-        return jwtConfig.extractExpiration(token);
+        return jwtConfig.extractExpiration(extractJwtToken(token));
     }
 
     /**
@@ -94,28 +113,19 @@ public class TokenService {
      * @return True if blacklisting was successful
      */
     public boolean blacklistToken(String token) {
-        if (token == null || !token.startsWith("Bearer ")) {
-            return false;
-        }
-
         try {
-            String jwtToken = token.substring(7);
-            Date expiryDate = extractExpiration(jwtToken);
-
-            if (expiryDate != null) {
-                tokenBlacklistService.blacklistToken(jwtToken, expiryDate.getTime());
-                log.info("Token blacklisted successfully. Forcing logout for security.");
-                return true;
+            String jwtToken = extractJwtToken(token);
+            if (jwtToken == null) {
+                log.warn("Cannot blacklist null token");
+                return false;
             }
-            return false;
-        } catch (ExpiredJwtException e) {
-            // Token already expired, no need to blacklist
+
+            Date expirationDate = extractExpiration(jwtToken);
+            tokenBlacklistService.blacklistToken(jwtToken, expirationDate.getTime());
+            log.info("Token blacklisted successfully. Forcing logout for security.");
             return true;
-        } catch (JwtException e) {
-            log.warn("Invalid JWT token during blacklisting: {}", e.getMessage());
-            return false;
         } catch (Exception e) {
-            log.error("Error blacklisting token: {}", e.getMessage());
+            log.error("Failed to blacklist token: {}", e.getMessage());
             return false;
         }
     }
@@ -127,7 +137,7 @@ public class TokenService {
      * @return True if token is blacklisted
      */
     public boolean isTokenBlacklisted(String token) {
-        return tokenBlacklistService.isBlacklisted(token);
+        return tokenBlacklistService.isBlacklisted(extractJwtToken(token));
     }
 
     /**
@@ -139,28 +149,28 @@ public class TokenService {
      */
     public String refreshToken(String token, UserDetails userDetails) throws AuthenticationException {
         try {
-            if (isTokenBlacklisted(token)) {
-                throw new AuthenticationException("Token is blacklisted");
+            String jwtToken = extractJwtToken(token);
+
+            if (isTokenBlacklisted(jwtToken)) {
+                throw new AuthenticationException("Token is blacklisted or has been logged out");
             }
 
-            UUID userId = extractUserId(token);
+            UUID userId = extractUserId(jwtToken);
 
             if (userDetails instanceof UserPrincipal userPrincipal) {
                 User user = userPrincipal.user();
 
-                // Check if user is banned
                 if (user.isBanned()) {
-                    // If user is banned, blacklist the token but don't issue a new one
-                    blacklistToken("Bearer " + token);
+                    if (!blacklistToken(jwtToken)) {
+                        log.warn("Failed to blacklist token for banned user {}", userId);
+                    }
                     throw new AuthenticationException("User is banned");
                 }
 
-                // Validate that the user ID matches
                 if (user.getId().equals(userId)) {
-                    // Blacklist the old token
-                    blacklistToken("Bearer " + token);
-
-                    // Generate a new token
+                    if (!blacklistToken(jwtToken)) {
+                        log.warn("Failed to blacklist token during refresh for user {}", userId);
+                    }
                     return generateToken(userDetails);
                 } else {
                     throw new AuthenticationException("Invalid token refresh attempt");
@@ -195,11 +205,8 @@ public class TokenService {
 
         try {
             log.info("Invalidating all tokens for user: {}", userId);
-
-            // Blacklist a user-specific key that will be checked during token validation
             String userSpecificToken = "user_tokens_invalidated:" + userId.toString();
             tokenBlacklistService.blacklistToken(userSpecificToken, System.currentTimeMillis() + (30L * 24 * 60 * 60 * 1000)); // 30 days expiry
-
         } catch (Exception e) {
             log.error("Error invalidating tokens for user {}: {}", userId, e.getMessage());
         }

@@ -1,13 +1,12 @@
 package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.exception.AuthenticationException;
+import dev.idachev.userservice.exception.DuplicateUserException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
-import dev.idachev.userservice.mapper.EntityMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.web.dto.AuthResponse;
-import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.RegisterRequest;
 import dev.idachev.userservice.web.dto.SignInRequest;
 import org.junit.jupiter.api.AfterEach;
@@ -43,43 +42,34 @@ public class AuthenticationServiceUTest {
 
     @Mock
     private UserRepository userRepository;
-
     @Mock
     private AuthenticationManager authenticationManager;
-
     @Mock
     private TokenService tokenService;
-
     @Mock
     private PasswordEncoder passwordEncoder;
-
     @Mock
     private EmailService emailService;
-
     @Mock
-    private dev.idachev.userservice.service.UserDetailsService userDetailsService;
-    
+    private UserDetailsService userDetailsService;
     @Mock
     private UserService userService;
-
     @Mock
     private Authentication authentication;
-    
     @Mock
     private SecurityContext securityContext;
 
     private AuthenticationService authenticationService;
-
     private User testUser;
     private RegisterRequest validRegisterRequest;
     private SignInRequest signInRequest;
     private String testToken;
+    private UUID testUserId;
 
     @BeforeEach
     void setUp() {
         SecurityContextHolder.setContext(securityContext);
 
-        // Manually create the service with all dependencies
         authenticationService = new AuthenticationService(
             userRepository,
             authenticationManager,
@@ -90,14 +80,16 @@ public class AuthenticationServiceUTest {
             userService
         );
 
+        // Test data setup
+        testUserId = UUID.randomUUID();
         testUser = User.builder()
-                .id(UUID.randomUUID())
+                .id(testUserId)
                 .username("testuser")
                 .email("test@example.com")
                 .password("encoded_password")
-                .enabled(true) // Assume enabled for sign-in tests
+                .enabled(true)
+                .banned(false)
                 .createdOn(LocalDateTime.now())
-                .updatedOn(LocalDateTime.now())
                 .build();
 
         validRegisterRequest = RegisterRequest.builder()
@@ -112,13 +104,6 @@ public class AuthenticationServiceUTest {
                 .build();
 
         testToken = "test.jwt.token";
-
-        // Mock dependencies
-        when(passwordEncoder.encode(anyString())).thenReturn("encoded_password");
-        when(emailService.generateVerificationToken()).thenReturn(UUID.randomUUID().toString());
-        
-        // Mock userService.registerUser method
-        when(userService.registerUser(any(RegisterRequest.class))).thenReturn(testUser);
     }
 
     @AfterEach
@@ -126,14 +111,15 @@ public class AuthenticationServiceUTest {
         SecurityContextHolder.clearContext();
     }
 
+    // AUTHENTICATION TESTS
+
     @Test
-    void givenValidCredentials_whenSignIn_thenReturnAuthResponseWithToken() {
+    void signIn_validCredentials_returnsAuthResponseWithToken() {
         // Given
         when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(testUser));
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class))).thenReturn(authentication);
         when(authentication.getPrincipal()).thenReturn(new UserPrincipal(testUser));
         when(tokenService.generateToken(any(UserDetails.class))).thenReturn(testToken);
-        when(userRepository.findById(any(UUID.class))).thenReturn(Optional.of(testUser));
 
         // When
         AuthResponse response = authenticationService.signIn(signInRequest);
@@ -143,46 +129,82 @@ public class AuthenticationServiceUTest {
         assertEquals(testToken, response.getToken());
         assertEquals(testUser.getUsername(), response.getUsername());
         assertTrue(response.isSuccess());
-        verify(userRepository).save(testUser); // Check if lastLogin is updated
+        verify(userRepository).save(testUser);
     }
 
     @Test
-    void givenNonexistentUser_whenSignIn_thenThrowAuthenticationException() {
+    void signIn_bannedUser_throwsAuthenticationException() {
+        // Given
+        User bannedUser = User.builder()
+                .id(testUserId)
+                .username("testuser")
+                .email("test@example.com")
+                .password("encoded_password")
+                .enabled(true)
+                .banned(true)
+                .createdOn(LocalDateTime.now())
+                .build();
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(bannedUser));
+
+        // When & Then
+        assertThrows(AuthenticationException.class, () -> 
+            authenticationService.signIn(signInRequest));
+    }
+
+    @Test
+    void signIn_nonexistentUser_throwsResourceNotFoundException() {
         // Given
         when(userRepository.findByUsername(anyString())).thenReturn(Optional.empty());
         when(userRepository.findByEmail(anyString())).thenReturn(Optional.empty());
 
         // When & Then
-        assertThrows(ResourceNotFoundException.class, () -> authenticationService.signIn(signInRequest));
+        assertThrows(ResourceNotFoundException.class, () -> 
+            authenticationService.signIn(signInRequest));
     }
 
     @Test
-    void givenInvalidCredentials_whenSignIn_thenThrowAuthenticationException() {
+    void signIn_invalidCredentials_throwsBadCredentialsException() {
         // Given
         when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(testUser));
         when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
                 .thenThrow(new BadCredentialsException("Invalid credentials"));
 
         // When & Then
-        assertThrows(BadCredentialsException.class, () -> authenticationService.signIn(signInRequest));
+        assertThrows(BadCredentialsException.class, () -> 
+            authenticationService.signIn(signInRequest));
     }
 
     @Test
-    void givenUserNotEnabled_whenSignIn_thenThrowAuthenticationException() {
+    void signIn_userNotEnabled_throwsAuthenticationException() {
         // Given
-        testUser.setEnabled(false);
-        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(testUser));
+        User disabledUser = User.builder()
+                .id(testUserId)
+                .username("testuser")
+                .email("test@example.com")
+                .password("encoded_password")
+                .enabled(false)
+                .banned(false)
+                .createdOn(LocalDateTime.now())
+                .build();
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(disabledUser));
 
         // When & Then
-        assertThrows(AuthenticationException.class, () -> authenticationService.signIn(signInRequest));
+        assertThrows(AuthenticationException.class, () -> 
+            authenticationService.signIn(signInRequest));
     }
 
-    @Test
-    void givenValidRegistrationRequest_whenRegister_thenReturnSuccessResponse() {
-        // Given
-        User savedUser = EntityMapper.mapToNewUser(validRegisterRequest, passwordEncoder, "token");
-        savedUser.setId(UUID.randomUUID()); // Simulate persistence
+    // REGISTRATION TESTS
 
+    @Test
+    void register_validRequest_returnsSuccessResponse() {
+        // Given
+        User savedUser = User.builder()
+            .id(UUID.randomUUID())
+            .username("testuser")
+            .email("test@example.com")
+            .password("encoded_password")
+            .build();
+        
         when(userRepository.existsByUsername(anyString())).thenReturn(false);
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(userService.registerUser(any(RegisterRequest.class))).thenReturn(savedUser);
@@ -200,37 +222,41 @@ public class AuthenticationServiceUTest {
     }
 
     @Test
-    void givenExistingUsername_whenRegister_thenThrowDuplicateUserException() {
+    void register_existingUsername_throwsDuplicateUserException() {
         // Given
         when(userRepository.existsByUsername(anyString())).thenReturn(true);
 
-        // When/Then
-        assertThrows(dev.idachev.userservice.exception.DuplicateUserException.class, () -> 
+        // When & Then
+        assertThrows(DuplicateUserException.class, () -> 
             authenticationService.register(validRegisterRequest));
         
         verify(userService, never()).registerUser(any(RegisterRequest.class));
     }
 
     @Test
-    void givenExistingEmail_whenRegister_thenThrowDuplicateUserException() {
+    void register_existingEmail_throwsDuplicateUserException() {
         // Given
         when(userRepository.existsByEmail(anyString())).thenReturn(true);
 
-        // When/Then
-        assertThrows(dev.idachev.userservice.exception.DuplicateUserException.class, () -> 
+        // When & Then
+        assertThrows(DuplicateUserException.class, () -> 
             authenticationService.register(validRegisterRequest));
         
         verify(userService, never()).registerUser(any(RegisterRequest.class));
     }
 
-    // Tests for token refresh
+    // TOKEN MANAGEMENT TESTS
+
     @Test
-    void refreshToken_Success() {
+    void refreshToken_validToken_returnsNewToken() {
         // Given
         String authHeader = "Bearer " + testToken;
+        String jwtToken = testToken;  // The token without the "Bearer " prefix
         UserDetails userDetails = new UserPrincipal(testUser);
-        when(tokenService.extractUserId(anyString())).thenReturn(testUser.getId());
-        when(userDetailsService.loadUserById(any(UUID.class))).thenReturn(userDetails);
+        
+        when(tokenService.isTokenBlacklisted(jwtToken)).thenReturn(false);
+        when(tokenService.extractUserId(jwtToken)).thenReturn(testUser.getId());
+        when(userRepository.findById(testUser.getId())).thenReturn(Optional.of(testUser));
         when(tokenService.generateToken(any(UserDetails.class))).thenReturn("new.token");
 
         // When
@@ -239,39 +265,101 @@ public class AuthenticationServiceUTest {
         // Then
         assertTrue(response.isSuccess());
         assertEquals("new.token", response.getToken());
-        verify(tokenService).blacklistToken(authHeader);
+        verify(tokenService).blacklistToken(jwtToken);
     }
 
     @Test
-    void refreshToken_InvalidHeader() {
-        // Given
-        String invalidHeader = "InvalidHeader";
-
-        // When/Then
-        assertThrows(AuthenticationException.class, () ->
-                authenticationService.refreshToken(invalidHeader));
+    void refreshToken_invalidHeader_throwsAuthenticationException() {
+        // When & Then
+        assertThrows(AuthenticationException.class, () -> 
+            authenticationService.refreshToken("InvalidHeader"));
     }
 
-    // Tests for logout
     @Test
-    void givenValidUserId_whenLogout_thenUpdateUserStatus() {
+    void logout_validUserId_updatesUserStatus() {
         // Given
+        String token = testToken;
+        when(tokenService.extractUserId(anyString())).thenReturn(testUserId);
         when(userRepository.findById(any(UUID.class))).thenReturn(Optional.of(testUser));
 
         // When
-        authenticationService.logout(testUser.getId());
+        authenticationService.logout(token);
 
         // Then
-        verify(userRepository).save(any(User.class));
-        assertFalse(testUser.isLoggedIn());
+        verify(tokenService).blacklistToken(token);
+        verify(userRepository).findById(testUserId);
+        verify(userRepository).save(testUser);
     }
 
     @Test
-    void givenNullUserId_whenLogout_thenDoNothing() {
+    void logout_nullUserId_doesNothing() {
         // When
-        authenticationService.logout((UUID) null);
+        authenticationService.logout((String) null);
 
         // Then
+        verify(tokenService, never()).blacklistToken(anyString());
         verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void logout_withToken_blacklistsTokenAndUpdatesUser() {
+        // Given
+        String token = "Bearer " + testToken;
+        String tokenWithoutBearer = testToken;
+        when(tokenService.extractUserId(anyString())).thenReturn(testUserId);
+        when(userRepository.findById(any(UUID.class))).thenReturn(Optional.of(testUser));
+
+        // When
+        authenticationService.logout(token);
+
+        // Then
+        verify(tokenService).blacklistToken(tokenWithoutBearer);
+        verify(userRepository).save(testUser);
+    }
+
+    @Test
+    void logout_withNullToken_doesNothing() {
+        // When
+        authenticationService.logout((String) null);
+
+        // Then
+        verify(tokenService, never()).blacklistToken(anyString());
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    void checkUserBanStatus_bannedUser_returnsTrue() {
+        // Given
+        User bannedUser = User.builder()
+                .id(testUserId)
+                .username("testuser")
+                .email("test@example.com")
+                .banned(true)
+                .build();
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(bannedUser));
+
+        // When
+        var result = authenticationService.checkUserBanStatus("testuser");
+
+        // Then
+        assertTrue((Boolean) result.get("banned"));
+    }
+
+    @Test
+    void checkUserBanStatus_nonBannedUser_returnsFalse() {
+        // Given
+        User nonBannedUser = User.builder()
+                .id(testUserId)
+                .username("testuser")
+                .email("test@example.com")
+                .banned(false)
+                .build();
+        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(nonBannedUser));
+
+        // When
+        var result = authenticationService.checkUserBanStatus("testuser");
+
+        // Then
+        assertFalse((Boolean) result.get("banned"));
     }
 }

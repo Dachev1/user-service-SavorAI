@@ -4,15 +4,15 @@ import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.stereotype.Service;
+import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -80,28 +80,36 @@ public class UserDetailsService implements org.springframework.security.core.use
         log.info("Handling username change: {} -> {}", oldUsername, newUsername);
 
         try {
-            // Clear all relevant cache entries in one operation for each cache
-            if (cacheManager.getCache("userDetails") != null) {
-                // Clear both usernames and user ID from userDetails cache
-                log.info("Clearing userDetails cache entries");
-                Objects.requireNonNull(cacheManager.getCache("userDetails")).evict(oldUsername);
-                Objects.requireNonNull(cacheManager.getCache("userDetails")).evict(newUsername);
-                Objects.requireNonNull(cacheManager.getCache("userDetails")).evict("id_" + userId);
-            }
-
-            if (cacheManager.getCache("users") != null) {
-                // Clear all related keys from users cache
-                log.info("Clearing users cache entries");
-                String[] keysToEvict = {
-                        oldUsername, newUsername,
-                        "username_" + oldUsername, "username_" + newUsername,
-                        "exists_username_" + oldUsername, "exists_username_" + newUsername,
-                        userId.toString()
-                };
-
-                for (String key : keysToEvict) {
-                    Objects.requireNonNull(cacheManager.getCache("users")).evict(key);
+            // Clear all relevant cache entries
+            if (cacheManager != null) {
+                // Clear entries from userDetails cache
+                Cache userDetailsCache = cacheManager.getCache("userDetails");
+                if (userDetailsCache != null) {
+                    // Clear both usernames and user ID from userDetails cache
+                    log.info("Clearing userDetails cache entries");
+                    userDetailsCache.evict(oldUsername);
+                    userDetailsCache.evict(newUsername);
+                    userDetailsCache.evict("id_" + userId);
                 }
+
+                // Clear entries from users cache
+                Cache usersCache = cacheManager.getCache("users");
+                if (usersCache != null) {
+                    // Clear all related keys from users cache
+                    log.info("Clearing users cache entries");
+                    String[] keysToEvict = {
+                            oldUsername, newUsername,
+                            "username_" + oldUsername, "username_" + newUsername,
+                            "exists_username_" + oldUsername, "exists_username_" + newUsername,
+                            userId.toString()
+                    };
+
+                    for (String key : keysToEvict) {
+                        usersCache.evict(key);
+                    }
+                }
+            } else {
+                log.warn("CacheManager is null, skipping cache eviction");
             }
 
             // Force user to be logged out - set loggedIn to false
@@ -113,7 +121,7 @@ public class UserDetailsService implements org.springframework.security.core.use
 
             log.info("Username change cache eviction completed for user ID: {}", userId);
         } catch (Exception e) {
-            log.error("Error during cache eviction for username change: {}", e.getMessage());
+            log.error("Error during cache eviction for username change: {}", e.getMessage(), e);
         }
     }
 } 

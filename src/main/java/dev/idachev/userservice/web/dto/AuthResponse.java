@@ -40,6 +40,9 @@ public class AuthResponse {
     @Schema(description = "Whether email verification is pending", example = "false")
     private boolean verificationPending;
 
+    @Schema(description = "Whether the user account is banned", example = "false")
+    private boolean banned;
+
     @Schema(description = "Timestamp of last login", example = "2024-03-20T15:30:00")
     private LocalDateTime lastLogin;
 
@@ -67,6 +70,9 @@ public class AuthResponse {
             this.email = user.getEmail();
             this.role = user.getRole();
             this.verified = user.isVerified();
+            this.verificationPending = user.isVerificationPending();
+            this.banned = user.isBanned();
+            this.lastLogin = user.getLastLogin();
         }
         this.success = true;
         this.message = "Token refreshed successfully";

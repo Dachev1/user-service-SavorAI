@@ -15,7 +15,6 @@ import java.security.Key;
 import java.util.Date;
 import java.util.UUID;
 import java.util.function.Function;
-import java.util.Base64;
 
 
 @Slf4j
@@ -36,7 +35,7 @@ public class JwtConfig {
         try {
             byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
             int keyBitSize = keyBytes.length * 8;
-            
+
             // For HS384, need at least 384 bits
             if (keyBitSize < 384) {
                 log.warn("JWT secret too small: {} bits < 384 bits - generating secure key", keyBitSize);
@@ -61,11 +60,29 @@ public class JwtConfig {
         if (userDetails instanceof UserPrincipal) {
             User user = ((UserPrincipal) userDetails).user();
 
-            return Jwts.builder().setSubject(userDetails.getUsername()).claim("userId", user.getId().toString()).claim("role", user.getRole().toString()).claim("email", user.getEmail()).claim("banned", user.isBanned()).setIssuedAt(new Date()).setExpiration(new Date(System.currentTimeMillis() + expiration)).signWith(signingKey, io.jsonwebtoken.SignatureAlgorithm.HS384).compact();
+            return Jwts.builder()
+                .setSubject(userDetails.getUsername())
+                .claim("userId", user.getId().toString())
+                .claim("role", user.getRole().toString())
+                .claim("email", user.getEmail())
+                .claim("banned", user.isBanned())
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + expiration))
+                // Add a unique JWT ID to ensure different tokens are generated each time
+                .setId(UUID.randomUUID().toString())
+                .signWith(signingKey, io.jsonwebtoken.SignatureAlgorithm.HS384)
+                .compact();
         }
 
         // For non-UserPrincipal users (should not happen in normal flow)
-        return Jwts.builder().setSubject(userDetails.getUsername()).setIssuedAt(new Date()).setExpiration(new Date(System.currentTimeMillis() + expiration)).signWith(signingKey, io.jsonwebtoken.SignatureAlgorithm.HS384).compact();
+        return Jwts.builder()
+            .setSubject(userDetails.getUsername())
+            .setIssuedAt(new Date())
+            .setExpiration(new Date(System.currentTimeMillis() + expiration))
+            // Add a unique JWT ID to ensure different tokens are generated each time
+            .setId(UUID.randomUUID().toString())
+            .signWith(signingKey, io.jsonwebtoken.SignatureAlgorithm.HS384)
+            .compact();
     }
 
     /**

@@ -1,10 +1,13 @@
 package dev.idachev.userservice.security;
 
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
-import java.util.UUID;
-
+import dev.idachev.userservice.config.JwtConfig;
+import dev.idachev.userservice.service.TokenBlacklistService;
+import dev.idachev.userservice.service.UserDetailsService;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -16,14 +19,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import dev.idachev.userservice.config.JwtConfig;
-import dev.idachev.userservice.service.TokenBlacklistService;
-import dev.idachev.userservice.service.UserDetailsService;
-import jakarta.servlet.FilterChain;
-import jakarta.servlet.ServletException;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import lombok.extern.slf4j.Slf4j;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.UUID;
 
 /**
  * Filter for validating JWT tokens in incoming requests

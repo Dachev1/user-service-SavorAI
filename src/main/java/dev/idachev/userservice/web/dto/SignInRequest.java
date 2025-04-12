@@ -2,8 +2,10 @@ package dev.idachev.userservice.web.dto;
 
 import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import dev.idachev.userservice.validation.PasswordValidator;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.*;
 
@@ -23,7 +25,8 @@ public class SignInRequest {
     private String identifier;
 
     @NotBlank(message = "Password cannot be empty")
-    @Size(min = 6, message = "Password must be at least 6 characters")
-    @Schema(description = "User's password", example = "Password123!")
+    @PasswordValidator
+    @Schema(description = "User's password (min 8 characters with at least one uppercase letter, one lowercase letter, one digit, and one special character)", 
+            example = "Password123!")
     private String password;
 } 

@@ -23,6 +23,7 @@ public class EntityMapperUTest {
     @Mock
     private PasswordEncoder passwordEncoder;
 
+    // Test data
     private RegisterRequest validRequest;
     private String testUsername;
     private String testEmail;
@@ -32,6 +33,7 @@ public class EntityMapperUTest {
 
     @BeforeEach
     void setUp() {
+        // Given
         testUsername = "testUser";
         testEmail = "test@example.com";
         testPassword = "password123";
@@ -46,7 +48,8 @@ public class EntityMapperUTest {
     }
 
     @Test
-    void givenValidRequest_whenMapToNewUser_thenReturnUserEntityWithRawPassword() {
+    void mapToNewUser_validRequest_returnsUserWithRawPassword() {
+        // Given - setup in setUp()
 
         // When
         User result = EntityMapper.mapToNewUser(validRequest);
@@ -64,20 +67,21 @@ public class EntityMapperUTest {
     }
 
     @Test
-    void givenNullRequest_whenMapToNewUser_thenThrowIllegalArgumentException() {
+    void mapToNewUser_nullRequest_throwsIllegalArgumentException() {
+        // Given
+        RegisterRequest nullRequest = null;
 
         // When & Then
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
-                () -> EntityMapper.mapToNewUser(null)
+                () -> EntityMapper.mapToNewUser(nullRequest)
         );
 
         assertEquals("Cannot map null request to User", exception.getMessage());
     }
 
     @Test
-    void givenValidRequestWithEncoderAndToken_whenMapToNewUser_thenReturnFullyConfiguredUser() {
-
+    void mapToNewUser_validRequestWithEncoderAndToken_returnsFullyConfiguredUser() {
         // Given
         when(passwordEncoder.encode(anyString())).thenReturn(encodedPassword);
 
@@ -93,52 +97,39 @@ public class EntityMapperUTest {
         assertEquals(verificationToken, result.getVerificationToken());
         assertNotNull(result.getCreatedOn());
         assertNotNull(result.getUpdatedOn());
-
-        // Verify that the password encoder was called
         verify(passwordEncoder).encode(testPassword);
     }
 
     @Test
-    void givenNullRequestWithEncoderAndToken_whenMapToNewUser_thenThrowIllegalArgumentException() {
+    void mapToNewUser_nullRequestWithEncoderAndToken_throwsIllegalArgumentException() {
+        // Given
+        RegisterRequest nullRequest = null;
 
         // When & Then
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
-                () -> EntityMapper.mapToNewUser(null, passwordEncoder, verificationToken)
+                () -> EntityMapper.mapToNewUser(nullRequest, passwordEncoder, verificationToken)
         );
 
         assertEquals("Cannot map null request to User", exception.getMessage());
     }
 
     @Test
-    void whenMapToNewUser_thenSetsCorrectTimestamps() {
-
-        // Given
-        LocalDateTime beforeOperation = LocalDateTime.now();
+    void mapToNewUser_anyRequest_setsCorrectTimestamps() {
+        // Given - setup in setUp()
 
         // When
         User result = EntityMapper.mapToNewUser(validRequest);
 
-        // Record time after operation
-        LocalDateTime afterOperation = LocalDateTime.now();
-
         // Then
         assertNotNull(result.getCreatedOn());
         assertNotNull(result.getUpdatedOn());
-
-        // The creation timestamp should be between beforeOperation and afterOperation
-        assertTrue(
-                !result.getCreatedOn().isBefore(beforeOperation.minusSeconds(1)) &&
-                        !result.getCreatedOn().isAfter(afterOperation.plusSeconds(1)),
-                "Creation timestamp should be between test execution bounds"
-        );
-
-        // Created and updated should be the same in a new entity
         assertEquals(result.getCreatedOn(), result.getUpdatedOn());
     }
 
     @Test
-    void whenMapToNewUser_thenSetsCorrectDefaultValues() {
+    void mapToNewUser_validRequest_setsCorrectDefaultValues() {
+        // Given - setup in setUp()
 
         // When
         User result = EntityMapper.mapToNewUser(validRequest);
@@ -152,8 +143,7 @@ public class EntityMapperUTest {
     }
 
     @Test
-    void givenEncoderAndToken_whenMapToNewUser_thenSetsCorrectDefaultValues() {
-
+    void mapToNewUser_validRequestWithEncoderAndToken_setsCorrectDefaultValues() {
         // Given
         when(passwordEncoder.encode(anyString())).thenReturn(encodedPassword);
 

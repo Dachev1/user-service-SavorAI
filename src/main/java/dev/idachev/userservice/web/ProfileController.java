@@ -9,11 +9,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
+
+import java.security.Principal;
 
 /**
  * Controller for user profile operations
@@ -21,19 +23,15 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/v1/profile")
 @Tag(name = "Profile", description = "User profile endpoints")
-@Slf4j
+@RequiredArgsConstructor
 public class ProfileController {
 
     private final ProfileService profileService;
 
-    public ProfileController(ProfileService profileService) {
-        this.profileService = profileService;
-    }
-
-    @GetMapping("/profile")
+    @GetMapping
     @Operation(
-            summary = "Get user profile",
-            description = "Retrieves the current user's profile information",
+            summary = "Get current user profile",
+            description = "Retrieves the current authenticated user's profile information",
             security = @SecurityRequirement(name = "bearerAuth")
     )
     @ApiResponses(value = {
@@ -41,13 +39,10 @@ public class ProfileController {
             @ApiResponse(responseCode = "401", description = "Unauthorized")
     })
     public ResponseEntity<UserResponse> getProfile() {
-        log.info("Profile request received");
-        UserResponse user = profileService.getCurrentUserInfo();
-        log.info("Profile retrieved for user: {}", user.getUsername());
-        return ResponseEntity.ok(user);
+        return ResponseEntity.ok(profileService.getCurrentUserInfo());
     }
 
-    @GetMapping("/profile/{username}")
+    @GetMapping("/{username}")
     @Operation(
             summary = "Get user profile by username",
             description = "Retrieves a user's profile information by username",
@@ -59,13 +54,10 @@ public class ProfileController {
             @ApiResponse(responseCode = "404", description = "User not found")
     })
     public ResponseEntity<UserResponse> getProfileByUsername(@PathVariable String username) {
-        log.info("Profile request received for username: {}", username);
-        UserResponse user = profileService.getUserInfo(username);
-        log.info("Profile retrieved for user: {}", user.getUsername());
-        return ResponseEntity.ok(user);
+        return ResponseEntity.ok(profileService.getUserInfo(username));
     }
 
-    @PutMapping("/profile")
+    @PutMapping
     @Operation(
             summary = "Update user profile",
             description = "Update user profile information including username",
@@ -78,53 +70,51 @@ public class ProfileController {
             @ApiResponse(responseCode = "409", description = "Username already taken")
     })
     public ResponseEntity<UserResponse> updateProfile(
-            @Valid @ModelAttribute ProfileUpdateRequest request,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        log.info("Updating profile for user: {}", userDetails.getUsername());
-
-        // Let exceptions propagate to GlobalExceptionHandler for proper status codes
-        UserResponse updatedUser = profileService.updateProfile(userDetails.getUsername(), request);
-
-        log.info("Profile updated successfully");
-        return ResponseEntity.ok(updatedUser);
+            @Valid @RequestBody ProfileUpdateRequest request,
+            @AuthenticationPrincipal UserDetails userDetails,
+            Principal principal) {
+        String username = userDetails != null ? userDetails.getUsername() : principal.getName();
+        return ResponseEntity.ok(profileService.updateProfile(username, request));
     }
-
-    // Compatibility endpoints for older clients using the /api/v1/user/profile path
-
-    @GetMapping("/user/profile")
+    
+    // Compatibility endpoints
+    
+    @GetMapping("/profile")
     public ResponseEntity<UserResponse> getProfileCompat() {
-        log.info("Compatibility endpoint: Profile request received");
-        return getProfile();
+        return ResponseEntity.ok(profileService.getCurrentUserInfo());
     }
-
-    @GetMapping("/user/profile/{username}")
+    
+    @GetMapping("/profile/{username}")
     public ResponseEntity<UserResponse> getProfileByUsernameCompat(@PathVariable String username) {
-        log.info("Compatibility endpoint: Profile request for username: {}", username);
-        return getProfileByUsername(username);
+        return ResponseEntity.ok(profileService.getUserInfo(username));
     }
-
-    @PutMapping("/user/profile")
+    
+    @PutMapping("/profile")
     public ResponseEntity<UserResponse> updateProfileCompat(
-            @Valid @ModelAttribute ProfileUpdateRequest request,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        log.info("Compatibility endpoint: Updating profile for user: {}", userDetails.getUsername());
-        return updateProfile(request, userDetails);
+            @Valid @RequestBody ProfileUpdateRequest request,
+            @AuthenticationPrincipal UserDetails userDetails,
+            Principal principal) {
+        String username = userDetails != null ? userDetails.getUsername() : principal.getName();
+        return ResponseEntity.ok(profileService.updateProfile(username, request));
     }
-
-    // Compatibility endpoint for older clients using the /api/v1/auth/profile path
-
-    @GetMapping("/auth/profile")
-    public ResponseEntity<UserResponse> getAuthProfileCompat() {
-        log.info("Auth compatibility endpoint: Profile request received");
-        return getProfile();
-    }
-
-    // Add endpoint for inter-service communication
+    
     @GetMapping("/user/current-user")
-    public ResponseEntity<UserResponse> getCurrentUser(@RequestHeader("Authorization") String token) {
-        log.info("Current user request received from service");
-        UserResponse user = profileService.getCurrentUserInfo();
-        log.info("Current user info retrieved for: {}", user.getUsername());
-        return ResponseEntity.ok(user);
+    public ResponseEntity<UserResponse> getCurrentUser() {
+        return ResponseEntity.ok(profileService.getCurrentUserInfo());
+    }
+    
+    @GetMapping("/user/profile")
+    public ResponseEntity<UserResponse> getUserProfile() {
+        return ResponseEntity.ok(profileService.getCurrentUserInfo());
+    }
+    
+    @GetMapping("/user/profile/{username}")
+    public ResponseEntity<UserResponse> getUserProfileByUsername(@PathVariable String username) {
+        return ResponseEntity.ok(profileService.getUserInfo(username));
+    }
+    
+    @GetMapping("/auth/profile")
+    public ResponseEntity<UserResponse> getAuthProfile() {
+        return ResponseEntity.ok(profileService.getCurrentUserInfo());
     }
 } 

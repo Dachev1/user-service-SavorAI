@@ -27,9 +27,9 @@ public class VerificationService {
     private final EmailService emailService;
     private final TokenService tokenService;
 
-    public VerificationService(UserRepository userRepository, 
-                              EmailService emailService, 
-                              TokenService tokenService) {
+    public VerificationService(UserRepository userRepository,
+                               EmailService emailService,
+                               TokenService tokenService) {
         this.userRepository = userRepository;
         this.emailService = emailService;
         this.tokenService = tokenService;
@@ -84,7 +84,7 @@ public class VerificationService {
     public VerificationResponse verifyEmailAndGetResponse(String token) {
         // Verify the email - this will throw ResourceNotFoundException if token is invalid
         verifyEmail(token);
-        
+
         // Return successful response
         return DtoMapper.mapToVerificationResponse(
                 null, true, "Your email has been verified successfully. You can now sign in to your account.");

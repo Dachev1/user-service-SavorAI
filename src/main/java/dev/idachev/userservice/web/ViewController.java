@@ -25,8 +25,7 @@ import java.nio.charset.StandardCharsets;
  */
 @Controller
 @Slf4j
-@RequestMapping("/view")
-@Tag(name = "Email Verification Views", description = "Endpoints for email verification with frontend redirects")
+@Tag(name = "View Controller", description = "Endpoints for serving HTML views")
 public class ViewController {
 
     @Value("${app.frontend.url:http://localhost:5173}")
@@ -41,6 +40,55 @@ public class ViewController {
     public ViewController(VerificationService verificationService) {
         this.verificationService = verificationService;
     }
+
+    // Root path controllers for main application views
+    
+    @GetMapping("/")
+    public String home() {
+        return "index";
+    }
+
+    @GetMapping("/signin")
+    public String signin() {
+        return "signin";
+    }
+
+    @GetMapping("/signup")
+    public String signup() {
+        return "signup";
+    }
+
+    @GetMapping("/verify-success")
+    public String verifySuccess() {
+        return "verify-success";
+    }
+
+    @GetMapping("/verify-failure")
+    public String verifyFailure() {
+        return "verify-failure";
+    }
+
+    @GetMapping("/password-reset")
+    public String passwordReset() {
+        return "password-reset";
+    }
+
+    @GetMapping("/dashboard")
+    public String dashboard() {
+        return "dashboard";
+    }
+
+    @GetMapping("/contact")
+    public String contact() {
+        return "contact";
+    }
+
+    @GetMapping("/access-denied")
+    public String accessDenied() {
+        return "access-denied";
+    }
+
+    // Email verification API endpoints
 
     @GetMapping("/api/v1/user/verify-email/")
     @Operation(summary = "Handle missing token",
@@ -66,19 +114,25 @@ public class ViewController {
         // Default values if token is empty
         if (token == null || token.trim().isEmpty()) {
             String message = URLEncoder.encode("Invalid or missing verification token", StandardCharsets.UTF_8);
-            return new RedirectView("http://localhost:5173/signin?verified=false&message=" + message);
+            return new RedirectView(frontendUrl + "/signin?verified=false&message=" + message);
         }
 
-        // Verify the token through service
-        VerificationResponse response = verificationService.verifyEmailAndGetResponse(token);
+        try {
+            // Verify the token through service
+            VerificationResponse response = verificationService.verifyEmailAndGetResponse(token);
 
-        // Encode the message for URL
-        String encodedMessage = URLEncoder.encode(response.getMessage(), StandardCharsets.UTF_8);
+            // Encode the message for URL
+            String encodedMessage = URLEncoder.encode(response.getMessage(), StandardCharsets.UTF_8);
 
-        // Direct redirect to the signin page
-        String signinUrl = "http://localhost:5173/signin?verified=" + response.isSuccess() + "&message=" + encodedMessage;
+            // Direct redirect to the signin page
+            String signinUrl = frontendUrl + "/signin?verified=" + response.isSuccess() + "&message=" + encodedMessage;
 
-        log.info("Redirecting to signin page with status: {}", response.isSuccess());
-        return new RedirectView(signinUrl);
+            log.info("Redirecting to signin page with status: {}", response.isSuccess());
+            return new RedirectView(signinUrl);
+        } catch (Exception e) {
+            log.error("Error during email verification: {}", e.getMessage(), e);
+            String encodedMessage = URLEncoder.encode(e.getMessage(), StandardCharsets.UTF_8);
+            return new RedirectView(frontendUrl + "/signin?verified=false&message=" + encodedMessage);
+        }
     }
 } 

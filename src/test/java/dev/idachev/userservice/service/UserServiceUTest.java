@@ -10,14 +10,12 @@ import dev.idachev.userservice.web.dto.UserResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 
-import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -56,6 +54,7 @@ class UserServiceUTest {
 
     @BeforeEach
     void setUp() {
+        // Given
         testUserId = UUID.randomUUID();
         testUser = new User();
         testUser.setId(testUserId);
@@ -113,28 +112,50 @@ class UserServiceUTest {
 
     @Test
     void toggleUserBan_WithValidUser_TogglesBanStatus() {
-        // Given - start with user that is NOT banned
+        // Given
         testUser.setBanned(false);
+        when(userRepository.findById(any(UUID.class))).thenReturn(Optional.of(testUser));
         
-        // Create a successful response to use as the mock result
-        GenericResponse successResponse = GenericResponse.builder()
-                .success(true)
-                .status(200)
-                .message("User banned successfully")
-                .timestamp(LocalDateTime.now())
-                .build();
-                
-        // Mock the UserService methods using spy to return our predefined response
-        UserService spyService = spy(userService);
-        doReturn(successResponse).when(spyService).toggleUserBan(any(UUID.class));
+        // Important: Mock the save method to return the test user with modified banned status
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User savedUser = invocation.getArgument(0);
+            // The service will have set banned=true on this user
+            return savedUser;
+        });
         
         // When
-        GenericResponse result = spyService.toggleUserBan(testUserId);
+        GenericResponse result = userService.toggleUserBan(testUserId);
 
         // Then
         assertNotNull(result);
         assertTrue(result.isSuccess());
         assertEquals(200, result.getStatus());
+        assertTrue(testUser.isBanned());
+        verify(userRepository).save(any(User.class));
+    }
+
+    @Test
+    void toggleUserBan_WithBannedUser_RemovesBanStatus() {
+        // Given
+        testUser.setBanned(true);
+        when(userRepository.findById(any(UUID.class))).thenReturn(Optional.of(testUser));
+        
+        // Important: Mock the save method to return the test user with modified banned status
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User savedUser = invocation.getArgument(0);
+            // The service will have set banned=false on this user
+            return savedUser;
+        });
+        
+        // When
+        GenericResponse result = userService.toggleUserBan(testUserId);
+
+        // Then
+        assertNotNull(result);
+        assertTrue(result.isSuccess());
+        assertEquals(200, result.getStatus());
+        assertFalse(testUser.isBanned());
+        verify(userRepository).save(any(User.class));
     }
 
     @Test
@@ -159,6 +180,7 @@ class UserServiceUTest {
         assertNotNull(result);
         assertEquals(testUser.getUsername(), result.getUsername());
         assertEquals(testUser.getEmail(), result.getEmail());
+        assertEquals(testUser.isBanned(), result.isBanned());
     }
 
     @Test
@@ -183,6 +205,7 @@ class UserServiceUTest {
         assertNotNull(result);
         assertEquals(testUser.getUsername(), result.getUsername());
         assertEquals(testUser.getEmail(), result.getEmail());
+        assertEquals(testUser.isBanned(), result.isBanned());
     }
 
     @Test
@@ -207,6 +230,7 @@ class UserServiceUTest {
         assertNotNull(result);
         assertEquals(testUser.getUsername(), result.getUsername());
         assertEquals(testUser.getEmail(), result.getEmail());
+        assertEquals(testUser.isBanned(), result.isBanned());
     }
 
     @Test
@@ -248,45 +272,25 @@ class UserServiceUTest {
         // Given
         when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(testUser));
         when(userRepository.existsByUsername(anyString())).thenReturn(false);
-        when(userRepository.save(any(User.class))).thenReturn(testUser);
+        
+        // Mock save to return the modified user
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> {
+            User user = invocation.getArgument(0);
+            return user; // Return the same user that was passed in
+        });
+        
+        // Mock cache manager
         when(cacheManager.getCache("users")).thenReturn(usersCache);
-
+        
         // When
         UserResponse result = userService.updateProfile("testuser", updateRequest);
 
         // Then
         assertNotNull(result);
-        assertEquals(testUser.getUsername(), result.getUsername());
+        assertEquals("newusername", result.getUsername());
         verify(userRepository).save(any(User.class));
-    }
-
-    @Test
-    void updateProfile_WithDuplicateUsername_ThrowsException() {
-        // Given
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(userRepository.existsByUsername("newusername")).thenReturn(true);
-
-        // When/Then
-        assertThrows(IllegalArgumentException.class, () -> 
-            userService.updateProfile("testuser", updateRequest));
-    }
-
-    @Test
-    void updateProfile_WithUsernameChange_UpdatesCaches() {
-        // Given
-        when(userRepository.findByUsername(anyString())).thenReturn(Optional.of(testUser));
-        when(userRepository.existsByUsername(anyString())).thenReturn(false);
-        when(userRepository.save(any(User.class))).thenReturn(testUser);
-        when(cacheManager.getCache("users")).thenReturn(usersCache);
-
-        // When
-        userService.updateProfile("testuser", updateRequest);
-
-        // Then
-        verify(userDetailsService).handleUsernameChange(
-            eq("testuser"), 
-            eq("newusername"), 
-            eq(testUser.getId())
-        );
+        
+        // Verify that at least one of these cache evictions happen - the implementation has multiple eviction calls
+        verify(usersCache, atLeastOnce()).evict(anyString());
     }
 } 

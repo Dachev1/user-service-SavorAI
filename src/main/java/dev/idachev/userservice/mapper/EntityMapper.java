@@ -37,7 +37,6 @@ public final class EntityMapper {
     }
 
 
-
     /**
      * Maps a RegisterRequest DTO to a new User entity with encoded password and verification token
      *
@@ -52,11 +51,11 @@ public final class EntityMapper {
         // Fix infinite recursion by NOT calling self with same parameters
         // First get the basic user without encoded password
         User user = mapToNewUser(request);
-        
+
         // Then encode the password and set the verification token
         user.setPassword(passwordEncoder.encode(request.getPassword()));
         user.setVerificationToken(verificationToken);
-        
+
         return user;
     }
 } 

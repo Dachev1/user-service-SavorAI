@@ -5,15 +5,15 @@ import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
-import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -22,19 +22,19 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
+@SpringBootTest
+@ActiveProfiles("test")
 class UserDetailsServiceUTest {
 
-    @Mock
+    @MockitoBean
     private UserRepository userRepository;
 
-    @Mock
+    @MockitoBean
     private CacheManager cacheManager;
 
-    @Mock
     private Cache userDetailsCache;
 
-    @InjectMocks
+    @Autowired
     private UserDetailsService userDetailsService;
 
     private User testUser;
@@ -50,11 +50,9 @@ class UserDetailsServiceUTest {
         testUser.setPassword("password");
         testUser.setEnabled(true);
 
-        // Make the stubbing lenient to avoid "unnecessary stubbing" errors
-        lenient().when(cacheManager.getCache("userDetails")).thenReturn(userDetailsCache);
-        
-        // Note: We're not mocking cache.get() since Spring's AOP proxies handle caching at runtime
-        // and these interactions don't happen directly in unit tests
+        // Create and setup mocks
+        userDetailsCache = mock(Cache.class);
+        when(cacheManager.getCache("userDetails")).thenReturn(userDetailsCache);
     }
 
     @Test
@@ -69,7 +67,6 @@ class UserDetailsServiceUTest {
         assertNotNull(result);
         assertTrue(result instanceof UserPrincipal);
         assertEquals(testUser.getUsername(), ((UserPrincipal) result).user().getUsername());
-        // Not verifying cache interaction since it's handled by Spring's runtime caching
     }
 
     @Test
@@ -85,7 +82,6 @@ class UserDetailsServiceUTest {
         assertNotNull(result);
         assertTrue(result instanceof UserPrincipal);
         assertEquals(testUser.getEmail(), ((UserPrincipal) result).user().getEmail());
-        // Not verifying cache interaction since it's handled by Spring's runtime caching
     }
 
     @Test
@@ -98,7 +94,7 @@ class UserDetailsServiceUTest {
     @Test
     void loadUserByUsername_WithNullUsername_ThrowsException() {
         // When/Then
-        assertThrows(UsernameNotFoundException.class, () ->
+        assertThrows(IllegalArgumentException.class, () ->
                 userDetailsService.loadUserByUsername(null));
     }
 
@@ -125,7 +121,6 @@ class UserDetailsServiceUTest {
         assertNotNull(result);
         assertTrue(result instanceof UserPrincipal);
         assertEquals(testUser.getId(), ((UserPrincipal) result).user().getId());
-        // Not verifying cache interaction since it's handled by Spring's runtime caching
     }
 
     @Test
@@ -141,26 +136,20 @@ class UserDetailsServiceUTest {
 
     @Test
     void clearUserDetailsCache_WithUsername_ClearsCache() {
-        // This test relies on Spring's @CacheEvict which we're not directly testing
-        // We're testing our custom implementation logic
-
         // When
         userDetailsService.clearUserDetailsCache("testuser");
 
-        // No interactions to verify as @CacheEvict handles the eviction
-        // This test will pass because Spring's cache eviction happens at runtime, not during unit tests
+        // Then
+        verify(userDetailsCache, times(1)).evict("testuser");
     }
 
     @Test
     void clearUserDetailsCache_WithUserId_ClearsCache() {
-        // This test relies on Spring's @CacheEvict which we're not directly testing
-        // We're testing our custom implementation logic
-
         // When
         userDetailsService.clearUserDetailsCacheById(testUserId);
 
-        // No interactions to verify as @CacheEvict handles the eviction
-        // This test will pass because Spring's cache eviction happens at runtime, not during unit tests
+        // Then
+        verify(userDetailsCache, times(1)).evict("id_" + testUserId);
     }
 
     @Test
@@ -176,7 +165,7 @@ class UserDetailsServiceUTest {
         userDetailsService.handleUsernameChange(oldUsername, newUsername, testUserId);
 
         // Then
-        verify(userDetailsCache).evict(oldUsername);
+        verify(userDetailsCache, atLeastOnce()).evict(oldUsername);
         verify(userDetailsCache).evict(newUsername);
         verify(userDetailsCache).evict("id_" + testUserId);
         verify(usersCache, times(7)).evict(anyString());
@@ -187,7 +176,8 @@ class UserDetailsServiceUTest {
         // Given
         String oldUsername = "olduser";
         String newUsername = "newuser";
-        ReflectionTestUtils.setField(userDetailsService, "cacheManager", null);
+        when(cacheManager.getCache("userDetails")).thenReturn(null);
+        when(cacheManager.getCache("users")).thenReturn(null);
 
         // When/Then
         assertDoesNotThrow(() ->

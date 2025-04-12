@@ -140,4 +140,16 @@ public class AuthController {
         Map<String, Object> response = authService.checkUserBanStatus(identifier);
         return ResponseEntity.ok(response);
     }
+
+    @GetMapping("/status")
+    @Operation(summary = "Check user status", description = "Checks if a user is banned by their username")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "User status check successful"),
+            @ApiResponse(responseCode = "404", description = "User not found")
+    })
+    public ResponseEntity<Map<String, Object>> getUserStatus(@RequestParam String username) {
+        log.info("User status check received for username: {}", username);
+        Map<String, Object> response = authService.checkUserBanStatus(username);
+        return ResponseEntity.ok(response);
+    }
 }

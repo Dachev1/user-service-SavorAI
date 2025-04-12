@@ -28,6 +28,7 @@ public class TokenBlacklistService {
     private final ConcurrentHashMap<String, Long> userBlacklists = new ConcurrentHashMap<>();
     private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor();
     private final java.security.Key signingKey;
+    private volatile boolean isShutdown = false;
 
     // Default expiration time is 24 hours
     @Value("${jwt.expiration:86400000}")
@@ -62,7 +63,9 @@ public class TokenBlacklistService {
     public void shutdown() {
         try {
             log.info("Shutting down token blacklist service");
-            cleanupExecutor.shutdown(); // Change back to shutdown() for test compatibility
+            isShutdown = true;
+            // Use shutdownNow() to immediately stop all running tasks
+            cleanupExecutor.shutdownNow();
             if (!cleanupExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
                 log.warn("Token blacklist cleanup task did not terminate in time");
             }
@@ -97,16 +100,13 @@ public class TokenBlacklistService {
                 log.info("Token with zero expiry blacklisted until {}", expiryDateTime);
             } else {
                 try {
-                    // Convert milliseconds to seconds for epoch conversion
-                    expiryDateTime = LocalDateTime.ofEpochSecond(
-                        expiryTimestamp / 1000, 
-                        0, 
-                        java.time.ZoneOffset.UTC
-                    );
+                    // Convert milliseconds timestamp to LocalDateTime using proper conversion
+                    // This was the source of the issue - improper conversion from timestamp to LocalDateTime
+                    expiryDateTime = LocalDateTime.now().plusSeconds((expiryTimestamp - System.currentTimeMillis()) / 1000);
                     log.info("Token blacklisted until {}", expiryDateTime);
                 } catch (Exception e) {
                     // Fallback to 1 hour from now if conversion fails
-                    log.warn("Error converting timestamp {}, using fallback expiry", expiryTimestamp, e);
+                    log.warn("Error processing timestamp {}, using fallback expiry", expiryTimestamp);
                     expiryDateTime = LocalDateTime.now().plusHours(1);
                 }
             }
@@ -130,25 +130,13 @@ public class TokenBlacklistService {
         }
 
         if (token.startsWith("user_tokens_invalidated:")) {
-            Long expiry = userBlacklists.get(token);
-            if (expiry == null) {
-                return false;
-            }
-
-            // Token is blacklisted if it's in the map AND the expiry time hasn't passed
-            return System.currentTimeMillis() <= expiry;
+            // For user blacklists, just check if the token exists in the map
+            return userBlacklists.containsKey(token);
         }
 
-        LocalDateTime expiry = blacklistedTokens.get(token);
-        if (expiry == null) {
-            return false;
-        }
-
-        LocalDateTime now = LocalDateTime.now();
-        
-        // Token is blacklisted if it's in the map AND the expiry time hasn't passed
-        // Using isAfter check instead of isBefore for proper comparison
-        return now.isBefore(expiry);
+        // For regular tokens, just check if the token exists in the map
+        // The expiry check is handled during cleanup
+        return blacklistedTokens.containsKey(token);
     }
 
     /**
@@ -222,7 +210,11 @@ public class TokenBlacklistService {
      * Force cleanup of expired tokens immediately - used for testing
      */
     public void forceCleanupExpiredTokens() {
-        cleanExpiredTokens();
+        if (!isShutdown) {
+            cleanExpiredTokens();
+        } else {
+            log.info("Skipping cleanup as service is shut down");
+        }
     }
 
 } 

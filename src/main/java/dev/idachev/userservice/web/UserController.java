@@ -3,22 +3,16 @@ package dev.idachev.userservice.web;
 import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.service.TokenService;
 import dev.idachev.userservice.service.UserService;
-import dev.idachev.userservice.web.dto.AuthResponse;
 import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.UserResponse;
 import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
-import lombok.extern.slf4j.Slf4j;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,17 +26,12 @@ import java.util.UUID;
 @RestController
 @RequestMapping("/api/v1")
 @Tag(name = "User Management", description = "Endpoints for user management")
-@Slf4j
 @Validated
+@RequiredArgsConstructor
 public class UserController {
 
     private final UserService userService;
     private final TokenService tokenService;
-
-    public UserController(UserService userService, TokenService tokenService) {
-        this.userService = userService;
-        this.tokenService = tokenService;
-    }
 
     @GetMapping("/user/check-username")
     @Operation(summary = "Check username availability")
@@ -51,100 +40,73 @@ public class UserController {
             @ApiResponse(responseCode = "400", description = "Invalid username format")
     })
     public ResponseEntity<GenericResponse> checkUsernameAvailability(@RequestParam String username) {
-        log.info("Checking username availability for: {}", username);
-
-        boolean isAvailable = !userService.existsByUsername(username);
-        log.info("Username {} is {}", username, isAvailable ? "available" : "taken");
-
-        return ResponseEntity.ok(GenericResponse.builder()
-                .status(200)
-                .message(isAvailable ? "Username is available" : "Username is already taken")
-                .timestamp(LocalDateTime.now())
-                .success(isAvailable)
-                .build());
+        return ResponseEntity.ok(userService.checkUsernameAvailability(username));
     }
 
     // ===================== ADMIN ENDPOINTS =====================
 
     @GetMapping("/admin/users")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Get all users (admin only)", description = "Retrieves information about all users in the system", security = @SecurityRequirement(name = "bearerAuth"))
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Users retrieved successfully"),
-            @ApiResponse(responseCode = "403", description = "Forbidden - requires admin role")
-    })
+    @Operation(
+        summary = "Get all users (admin only)", 
+        description = "Retrieves information about all users in the system", 
+        security = @SecurityRequirement(name = "bearerAuth")
+    )
     public ResponseEntity<List<UserResponse>> getAllUsers() {
-        log.info("Admin request to get all users");
-        List<UserResponse> users = userService.getAllUsers();
-        return ResponseEntity.ok(users);
+        return ResponseEntity.ok(userService.getAllUsers());
     }
 
     @PutMapping("/admin/users/{userId}/role")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Update user role (admin only)", description = "Changes a user's role in the system", security = @SecurityRequirement(name = "bearerAuth"))
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "Role updated successfully"),
-            @ApiResponse(responseCode = "404", description = "User not found"),
-            @ApiResponse(responseCode = "403", description = "Forbidden - requires admin role")
-    })
+    @Operation(
+        summary = "Update user role (admin only)", 
+        description = "Changes a user's role in the system", 
+        security = @SecurityRequirement(name = "bearerAuth")
+    )
     public ResponseEntity<GenericResponse> updateUserRole(
             @PathVariable UUID userId,
-            @RequestParam Role role,
-            @AuthenticationPrincipal UserDetails admin) {
-        log.info("Admin {} is updating user {} role to {}", admin.getUsername(), userId, role);
-
-        // Make sure admin is not changing their own role
+            @RequestParam Role role) {
+        // Check if admin is trying to change their own role
         if (userService.isCurrentUser(userId)) {
-            return ResponseEntity.ok(GenericResponse.builder()
+            return ResponseEntity.badRequest().body(
+                GenericResponse.builder()
                     .status(400)
                     .message("Admins cannot change their own role")
                     .timestamp(LocalDateTime.now())
                     .success(false)
-                    .build());
+                    .build()
+            );
         }
-
-        // Delegate the entire role update process to the service layer
-        GenericResponse response = userService.updateUserRoleWithTokenRefresh(userId, role);
-        return ResponseEntity.ok(response);
+        
+        return ResponseEntity.ok(userService.updateUserRoleWithTokenRefresh(userId, role));
     }
 
     @PutMapping("/admin/users/{userId}/ban")
     @PreAuthorize("hasRole('ADMIN')")
-    @Operation(summary = "Toggle user ban status (admin only)", description = "Toggles a user's ban status (banned/unbanned)", security = @SecurityRequirement(name = "bearerAuth"))
-    @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "User ban status toggled successfully"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized"),
-            @ApiResponse(responseCode = "403", description = "Forbidden - requires admin role"),
-            @ApiResponse(responseCode = "404", description = "User not found")
-    })
-    public ResponseEntity<GenericResponse> toggleUserBan(
-            @PathVariable UUID userId,
-            @AuthenticationPrincipal UserDetails admin) {
-        log.info("Admin {} is toggling ban status for user {}", admin.getUsername(), userId);
-
-        // Prevent an admin from banning themselves
+    @Operation(
+        summary = "Toggle user ban status (admin only)", 
+        description = "Toggles a user's ban status (banned/unbanned)", 
+        security = @SecurityRequirement(name = "bearerAuth")
+    )
+    public ResponseEntity<GenericResponse> toggleUserBan(@PathVariable UUID userId) {
+        // Check if admin is trying to ban themselves
         if (userService.isCurrentUser(userId)) {
-            return ResponseEntity.ok(GenericResponse.builder()
+            return ResponseEntity.badRequest().body(
+                GenericResponse.builder()
                     .status(400)
                     .message("Admins cannot ban themselves")
                     .timestamp(LocalDateTime.now())
                     .success(false)
-                    .build());
+                    .build()
+            );
         }
-
+        
         GenericResponse response = userService.toggleUserBan(userId);
-
-        // If the user was banned, invalidate their tokens
+        
         if (response.isSuccess() && response.getMessage().contains("banned")) {
-            log.info("User {} was banned, invalidating their tokens", userId);
             tokenService.invalidateUserTokens(userId);
         }
-
+        
         return ResponseEntity.ok(response);
     }
-
-//    @RequestMapping(value = "/admin", method = RequestMethod.OPTIONS)
-//    public ResponseEntity<?> options() {
-//        return ResponseEntity.ok().build();
-//    }
 }

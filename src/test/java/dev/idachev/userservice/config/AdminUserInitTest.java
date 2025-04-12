@@ -28,13 +28,16 @@ class AdminUserInitTest {
     @InjectMocks
     private AdminUserInit adminUserInit;
 
+    // Test data
     private final String testUsername = "Ivan";
     private final String testEmail = "pffe3e@gmail.com";
     private final String testPassword = "123123123";
     private final String encodedPassword = "encoded_password";
 
+    // ADMIN USER INITIALIZATION TESTS
+
     @Test
-    void whenAdminUserDoesNotExist_thenCreateIt() {
+    void run_adminUserDoesNotExist_createsNewAdminUser() {
         // Given
         when(userRepository.existsByUsername(testUsername)).thenReturn(false);
         when(userRepository.existsByEmail(testEmail)).thenReturn(false);
@@ -59,7 +62,7 @@ class AdminUserInitTest {
     }
 
     @Test
-    void whenAdminUserExists_thenDoNotCreateIt() {
+    void run_adminUsernameExists_doesNotCreateUser() {
         // Given
         when(userRepository.existsByUsername(testUsername)).thenReturn(true);
 
@@ -72,7 +75,7 @@ class AdminUserInitTest {
     }
 
     @Test
-    void whenAdminEmailExists_thenDoNotCreateIt() {
+    void run_adminEmailExists_doesNotCreateUser() {
         // Given
         when(userRepository.existsByUsername(testUsername)).thenReturn(false);
         when(userRepository.existsByEmail(testEmail)).thenReturn(true);
