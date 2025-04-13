@@ -25,6 +25,8 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
+        globally_quoted_identifiers: true
+        globally_quoted_identifiers_skip_column_definitions: true
   
   # Email configuration for contact form
   mail:
@@ -46,9 +48,6 @@ app:
     url: http://localhost:8081
   frontend:
     url: http://localhost:5173
-    routes:
-      login: /signin
-      register: /signup
 
 # Security configuration
 jwt:

@@ -48,9 +48,6 @@ app:
     url: http://localhost:8081
   frontend:
     url: http://localhost:5173
-    routes:
-      login: /signin
-      register: /signup
 
 # Security configuration
 jwt:

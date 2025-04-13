@@ -43,9 +43,12 @@ public class SecurityConfig {
             "/api/v1/verification/status",
             "/api/v1/verification/resend",
             "/api/v1/verification/verify/**",
-
-            // User endpoints
+            
+            // Profile endpoints that don't need authentication
+            "/api/v1/profile",
+            "/api/v1/profile/**",
             "/api/v1/user/check-username",
+            "/api/v1/users/*/username",
 
             // Contact form endpoint
             "/api/v1/contact/submit",

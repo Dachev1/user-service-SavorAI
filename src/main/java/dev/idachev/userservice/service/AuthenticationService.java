@@ -72,6 +72,7 @@ public class AuthenticationService {
      */
     @Transactional
     public AuthResponse signIn(SignInRequest request) {
+        // Regular authentication flow
         User user = findUserByIdentifier(request.getIdentifier());
 
         if (!user.isEnabled()) {
@@ -82,17 +83,22 @@ public class AuthenticationService {
             throw new AuthenticationException("Your account has been banned. Please contact support for assistance.");
         }
 
-        Authentication authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(user.getUsername(), request.getPassword()));
-        
-        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        try {
+            Authentication authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(user.getUsername(), request.getPassword()));
+            
+            UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
 
-        user.setLastLogin(LocalDateTime.now());
-        user.setLoggedIn(true);
-        userRepository.save(user);
+            user.setLastLogin(LocalDateTime.now());
+            user.setLoggedIn(true);
+            userRepository.save(user);
 
-        String token = tokenService.generateToken(userPrincipal);
-        return DtoMapper.mapToAuthResponse(user, token);
+            String token = tokenService.generateToken(userPrincipal);
+            return DtoMapper.mapToAuthResponse(user, token);
+        } catch (org.springframework.security.authentication.BadCredentialsException e) {
+            // Convert to our generic auth exception for security
+            throw new AuthenticationException("Invalid credentials");
+        }
     }
 
     /**
@@ -105,7 +111,7 @@ public class AuthenticationService {
         }
         
         return userRepository.findByEmail(identifier)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with identifier: " + identifier));
+                .orElseThrow(() -> new AuthenticationException("Invalid credentials"));
     }
 
     /**
@@ -160,26 +166,81 @@ public class AuthenticationService {
 
     /**
      * Changes a user's username
+     * 
+     * @throws IllegalArgumentException if input parameters are invalid
+     * @throws ResourceNotFoundException if user doesn't exist
+     * @throws AuthenticationException if password is incorrect
+     * @throws DuplicateUserException if new username is already taken
      */
     @Transactional
     public GenericResponse changeUsername(String currentUsername, String newUsername, String password) {
+        log.debug("Starting username change process: currentUsername={}, newUsername={}", 
+                currentUsername, newUsername);
+                
+        // Validate inputs
+        if (currentUsername == null || newUsername == null || password == null || 
+            newUsername.isBlank() || password.isBlank()) {
+            log.warn("Username change validation failed: missing required fields");
+            throw new IllegalArgumentException("Username and password are required");
+        }
+        
+        // Format validation is done primarily through DTO annotations,
+        // this is just a secondary check for direct API calls
+        if (!newUsername.matches("^[a-zA-Z0-9._-]{3,50}$")) {
+            log.warn("Username format validation failed: newUsername={} doesn't match required pattern", newUsername);
+            throw new IllegalArgumentException(
+                "Username must be 3-50 characters and contain only letters, numbers, dots, underscores, and hyphens");
+        }
+        
+        // Find user
+        log.debug("Looking up user by username: {}", currentUsername);
         User user = userRepository.findByUsername(currentUsername)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + currentUsername));
+                .orElseThrow(() -> {
+                    log.error("User not found for username change: {}", currentUsername);
+                    return new ResourceNotFoundException("User not found");
+                });
+        log.debug("User found: id={}, username={}", user.getId(), user.getUsername());
 
+        // Short-circuit if username unchanged
+        if (currentUsername.equals(newUsername)) {
+            log.info("Username change skipped - new username is the same as current: {}", currentUsername);
+            return GenericResponse.builder()
+                    .status(200)
+                    .message("Username unchanged")
+                    .timestamp(LocalDateTime.now())
+                    .success(true)
+                    .build();
+        }
+        
+        // Verify password
+        log.debug("Verifying password for user: {}", currentUsername);
         if (!passwordEncoder.matches(password, user.getPassword())) {
+            log.warn("Password verification failed for username change: user={}", currentUsername);
             throw new AuthenticationException("Current password is incorrect");
         }
+        log.debug("Password verification successful for user: {}", currentUsername);
 
+        // Check availability
+        log.debug("Checking if username already exists: {}", newUsername);
         if (userRepository.existsByUsername(newUsername)) {
+            log.warn("Username already exists: {}", newUsername);
             throw new DuplicateUserException("Username already exists");
         }
 
+        // Update user
+        log.info("Updating username from '{}' to '{}'", currentUsername, newUsername);
         user.setUsername(newUsername);
         user.setUpdatedOn(LocalDateTime.now());
         userRepository.save(user);
-
+        log.debug("Username updated in database: userId={}, oldUsername={}, newUsername={}", 
+                user.getId(), currentUsername, newUsername);
+        
+        // Invalidate tokens
+        log.debug("Invalidating tokens for user: id={}", user.getId());
         tokenService.invalidateUserTokens(user.getId());
+        log.info("Tokens invalidated for user: id={}", user.getId());
 
+        log.info("Username change completed successfully: from '{}' to '{}'", currentUsername, newUsername);
         return GenericResponse.builder()
                 .status(200)
                 .message("Username updated successfully")

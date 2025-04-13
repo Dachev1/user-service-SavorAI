@@ -36,7 +36,8 @@ public class ProfileController {
     )
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Profile retrieved successfully"),
-            @ApiResponse(responseCode = "401", description = "Unauthorized")
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden")
     })
     public ResponseEntity<UserResponse> getProfile() {
         return ResponseEntity.ok(profileService.getCurrentUserInfo());
@@ -75,46 +76,5 @@ public class ProfileController {
             Principal principal) {
         String username = userDetails != null ? userDetails.getUsername() : principal.getName();
         return ResponseEntity.ok(profileService.updateProfile(username, request));
-    }
-    
-    // Compatibility endpoints
-    
-    @GetMapping("/profile")
-    public ResponseEntity<UserResponse> getProfileCompat() {
-        return ResponseEntity.ok(profileService.getCurrentUserInfo());
-    }
-    
-    @GetMapping("/profile/{username}")
-    public ResponseEntity<UserResponse> getProfileByUsernameCompat(@PathVariable String username) {
-        return ResponseEntity.ok(profileService.getUserInfo(username));
-    }
-    
-    @PutMapping("/profile")
-    public ResponseEntity<UserResponse> updateProfileCompat(
-            @Valid @RequestBody ProfileUpdateRequest request,
-            @AuthenticationPrincipal UserDetails userDetails,
-            Principal principal) {
-        String username = userDetails != null ? userDetails.getUsername() : principal.getName();
-        return ResponseEntity.ok(profileService.updateProfile(username, request));
-    }
-    
-    @GetMapping("/user/current-user")
-    public ResponseEntity<UserResponse> getCurrentUser() {
-        return ResponseEntity.ok(profileService.getCurrentUserInfo());
-    }
-    
-    @GetMapping("/user/profile")
-    public ResponseEntity<UserResponse> getUserProfile() {
-        return ResponseEntity.ok(profileService.getCurrentUserInfo());
-    }
-    
-    @GetMapping("/user/profile/{username}")
-    public ResponseEntity<UserResponse> getUserProfileByUsername(@PathVariable String username) {
-        return ResponseEntity.ok(profileService.getUserInfo(username));
-    }
-    
-    @GetMapping("/auth/profile")
-    public ResponseEntity<UserResponse> getAuthProfile() {
-        return ResponseEntity.ok(profileService.getCurrentUserInfo());
     }
 } 

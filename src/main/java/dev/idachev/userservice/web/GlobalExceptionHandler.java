@@ -34,7 +34,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BadCredentialsException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ResponseEntity<GenericResponse> handleBadCredentialsException(BadCredentialsException ex) {
-        return createResponse(HttpStatus.UNAUTHORIZED, "Authentication failed. Invalid username or password.");
+        return createResponse(HttpStatus.UNAUTHORIZED, "Invalid credentials");
     }
 
     /**
@@ -43,6 +43,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AuthenticationException.class)
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ResponseEntity<GenericResponse> handleAuthenticationException(AuthenticationException ex) {
+        log.warn("Authentication error: {}", ex.getMessage());
         if (ex.getMessage().contains(ALREADY_LOGGED_IN_MSG)) {
             return createResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
         }
@@ -52,10 +53,14 @@ public class GlobalExceptionHandler {
     /**
      * Handles resource not found exceptions
      */
-    @ExceptionHandler({UsernameNotFoundException.class, ResourceNotFoundException.class, 
-                      dev.idachev.userservice.exception.UserNotFoundException.class})
-    @ResponseStatus(HttpStatus.NOT_FOUND)
+    @ExceptionHandler({UsernameNotFoundException.class, ResourceNotFoundException.class})
     public ResponseEntity<GenericResponse> handleNotFoundExceptions(Exception ex) {
+        log.warn("Resource not found: {}", ex.getMessage());
+        // Check if it's related to authentication
+        if (ex instanceof UsernameNotFoundException ||
+            (ex instanceof ResourceNotFoundException && ex.getMessage().contains("User not found"))) {
+            return createResponse(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+        }
         return createResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
@@ -65,11 +70,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ResponseEntity<GenericResponse> handleValidationExceptions(MethodArgumentNotValidException ex) {
+        log.debug("Validation error on request: {}", ex.getMessage());
+        
         String errorMessage = ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
                 .collect(Collectors.joining("; "));
 
-        return createResponse(HttpStatus.BAD_REQUEST, "Validation failed: " + errorMessage);
+        return createResponse(HttpStatus.BAD_REQUEST, errorMessage);
     }
 
     /**
@@ -78,6 +85,8 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(jakarta.validation.ConstraintViolationException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ResponseEntity<GenericResponse> handleConstraintViolation(jakarta.validation.ConstraintViolationException ex) {
+        log.debug("Constraint violation: {}", ex.getMessage());
+        
         String errorMessage = ex.getConstraintViolations().stream()
                 .map(violation -> {
                     String path = violation.getPropertyPath().toString();
@@ -88,7 +97,7 @@ public class GlobalExceptionHandler {
                 })
                 .collect(Collectors.joining("; "));
 
-        return createResponse(HttpStatus.BAD_REQUEST, "Validation failed: " + errorMessage);
+        return createResponse(HttpStatus.BAD_REQUEST, errorMessage);
     }
 
     /**
@@ -97,6 +106,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({IllegalArgumentException.class})
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ResponseEntity<GenericResponse> handleBadRequestExceptions(Exception ex) {
+        log.warn("Bad request: {}", ex.getMessage());
         return createResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
@@ -106,6 +116,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(DuplicateUserException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ResponseEntity<GenericResponse> handleDuplicateUserException(DuplicateUserException ex) {
+        log.warn("Duplicate user error: {}", ex.getMessage());
         return createResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 

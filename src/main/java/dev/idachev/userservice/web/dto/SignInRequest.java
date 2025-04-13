@@ -25,7 +25,6 @@ public class SignInRequest {
     private String identifier;
 
     @NotBlank(message = "Password cannot be empty")
-    @PasswordValidator
     @Schema(description = "User's password (min 8 characters with at least one uppercase letter, one lowercase letter, one digit, and one special character)", 
             example = "Password123!")
     private String password;

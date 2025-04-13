@@ -282,4 +282,24 @@ public class UserService {
                 .success(isAvailable)
                 .build();
     }
+
+    /**
+     * Get user by ID for internal service communication
+     */
+    @Transactional(readOnly = true)
+    public UserResponse getUserById(UUID userId) {
+        return userRepository.findById(userId)
+                .map(DtoMapper::mapToUserResponse)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+    }
+
+    /**
+     * Get just the username by user ID
+     */
+    @Transactional(readOnly = true)
+    public String getUsernameById(UUID userId) {
+        return userRepository.findById(userId)
+                .map(User::getUsername)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+    }
 } 
