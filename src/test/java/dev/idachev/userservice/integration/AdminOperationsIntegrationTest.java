@@ -139,7 +139,7 @@ class AdminOperationsIntegrationTest {
         // Then
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().getRole()).isEqualTo("ADMIN");
+        assertThat(response.getBody().getRole()).isEqualTo(Role.ADMIN);
         assertThat(response.getBody().getUsername()).isEqualTo(regularUser.getUsername());
 
         // Verify database was updated

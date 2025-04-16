@@ -41,7 +41,7 @@ class ContactFormIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().isSuccess()).isTrue();
-        assertThat(response.getBody().getMessage()).contains("submitted");
+        assertThat(response.getBody().getMessage()).isEqualTo("Thank you for your message. We'll get back to you soon!");
     }
 
     @Test
