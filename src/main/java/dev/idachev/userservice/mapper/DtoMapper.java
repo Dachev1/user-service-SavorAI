@@ -8,23 +8,19 @@ import dev.idachev.userservice.web.dto.VerificationResponse;
 import lombok.experimental.UtilityClass;
 
 import java.time.LocalDateTime;
-import java.util.Optional;
+import java.util.Objects;
 
 /**
- * Utility class for mapping between entities and DTOs
+ * Maps entities to DTOs
  */
 @UtilityClass
-public final class DtoMapper {
+public class DtoMapper {
 
     /**
-     * Maps a User entity to UserResponse DTO
-     *
-     * @param user the user entity to map
-     * @return the UserResponse DTO
-     * @throws IllegalArgumentException if user is null
+     * Maps User entity to UserResponse DTO
      */
     public static UserResponse mapToUserResponse(User user) {
-        validateUser(user, "Cannot map null user to UserResponse");
+        Objects.requireNonNull(user, "Cannot map null user to UserResponse");
 
         return UserResponse.builder()
                 .id(user.getId())
@@ -40,20 +36,13 @@ public final class DtoMapper {
     }
 
     /**
-     * Maps a User entity to AuthResponse DTO with token
-     *
-     * @param user  the user entity to map
-     * @param token the JWT token (can be empty string for unverified users)
-     * @return the AuthResponse DTO
-     * @throws IllegalArgumentException if user is null
+     * Maps User entity to AuthResponse DTO with token
      */
     public static AuthResponse mapToAuthResponse(User user, String token) {
-        validateUser(user, "Cannot map null user to AuthResponse");
-
-        UserResponse userResponse = mapToUserResponse(user);
+        Objects.requireNonNull(user, "Cannot map null user to AuthResponse");
 
         return AuthResponse.builder()
-                .token(Optional.ofNullable(token).orElse(""))
+                .token(token != null ? token : "")
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .role(user.getRole().name())
@@ -63,18 +52,12 @@ public final class DtoMapper {
                 .lastLogin(user.getLastLogin())
                 .success(true)
                 .message("")
-                .user(userResponse)
+                .user(mapToUserResponse(user))
                 .build();
     }
 
     /**
-     * Creates an AuthResponse with success status, message, and basic user info
-     * Useful for registration success/failure responses
-     *
-     * @param user    The user (for username and email)
-     * @param success Whether the operation was successful
-     * @param message Response message
-     * @return AuthResponse with status information and basic user details
+     * Creates an AuthResponse with success status and user info
      */
     public static AuthResponse mapToAuthResponse(User user, boolean success, String message) {
         if (user == null) {
@@ -84,74 +67,48 @@ public final class DtoMapper {
         return AuthResponse.builder()
                 .username(user.getUsername())
                 .email(user.getEmail())
+                .role(user.getRole().name())
+                .token("")
                 .verified(user.isEnabled())
                 .verificationPending(user.isVerificationPending())
                 .banned(user.isBanned())
                 .lastLogin(user.getLastLogin())
                 .success(success)
-                .message(getNonNullMessage(message))
+                .message(message != null ? message : "")
+                .user(mapToUserResponse(user))
                 .build();
     }
 
     /**
-     * Creates a simple AuthResponse with just success status and message (no user data)
-     *
-     * @param success Whether the operation was successful
-     * @param message Response message
-     * @return AuthResponse with status information
+     * Creates a simple AuthResponse with just status and message
      */
     public static AuthResponse mapToAuthResponse(boolean success, String message) {
         return AuthResponse.builder()
                 .success(success)
-                .message(getNonNullMessage(message))
+                .message(message != null ? message : "")
                 .build();
     }
 
     /**
-     * Maps a User entity to a VerificationResponse DTO
-     *
-     * @param user    the user entity (can be null for failed verifications)
-     * @param success whether verification was successful
-     * @param message the message to include in the response
-     * @return the VerificationResponse DTO
+     * Maps User entity to a VerificationResponse DTO
      */
     public static VerificationResponse mapToVerificationResponse(User user, boolean success, String message) {
         return VerificationResponse.builder()
                 .success(success)
-                .message(getNonNullMessage(message))
+                .message(message != null ? message : "")
                 .data(user != null ? mapToUserResponse(user) : null)
                 .timestamp(LocalDateTime.now())
                 .build();
     }
 
     /**
-     * Creates a generic response with the specified status and message
-     *
-     * @param status  HTTP status code
-     * @param message Response message
-     * @return GenericResponse with status information
+     * Creates a generic response with status and message
      */
     public static GenericResponse mapToGenericResponse(int status, String message) {
         return GenericResponse.builder()
                 .status(status)
-                .message(getNonNullMessage(message))
+                .message(message != null ? message : "")
                 .timestamp(LocalDateTime.now())
                 .build();
-    }
-
-    /**
-     * Validates that a user is not null
-     */
-    private static void validateUser(User user, String errorMessage) {
-        if (user == null) {
-            throw new IllegalArgumentException(errorMessage);
-        }
-    }
-
-    /**
-     * Returns a non-null message
-     */
-    private static String getNonNullMessage(String message) {
-        return message != null ? message : "";
     }
 } 

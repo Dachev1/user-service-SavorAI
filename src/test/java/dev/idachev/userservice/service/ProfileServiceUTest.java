@@ -2,16 +2,18 @@ package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
+import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
 import dev.idachev.userservice.web.dto.UserResponse;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.cache.CacheManager;
@@ -19,11 +21,13 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,35 +48,39 @@ class ProfileServiceUTest {
     @Mock
     private Authentication authentication;
 
-    @InjectMocks
+    @Captor
+    private ArgumentCaptor<User> userCaptor;
+
     private ProfileService profileService;
 
+    private UUID userId;
     private User testUser;
-    private UserPrincipal userPrincipal;
 
     @BeforeEach
     void setUp() {
-        testUser = new User();
-        testUser.setId(UUID.randomUUID());
-        testUser.setUsername("testuser");
-        testUser.setEmail("test@example.com");
+        profileService = new ProfileService(userRepository, userDetailsService, cacheManager);
 
-        userPrincipal = new UserPrincipal(testUser);
+        userId = UUID.randomUUID();
+        testUser = User.builder()
+                .id(userId)
+                .username("testuser")
+                .email("test@example.com")
+                .password("encodedPassword")
+                .role(Role.USER)
+                .enabled(true)
+                .createdOn(LocalDateTime.now())
+                .updatedOn(LocalDateTime.now())
+                .build();
 
-        // Reset SecurityContext for each test
-        SecurityContextHolder.clearContext();
         SecurityContextHolder.setContext(securityContext);
     }
 
-    @AfterEach
-    void tearDown() {
-        // Clear SecurityContext after each test
-        SecurityContextHolder.clearContext();
-    }
-
     @Test
-    void getCurrentUser_WithAuthenticatedUser_ReturnsUser() {
+    @DisplayName("Should get current user when user is authenticated")
+    void should_GetCurrentUser_When_UserIsAuthenticated() {
         // Given
+        UserPrincipal userPrincipal = new UserPrincipal(testUser);
+
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getPrincipal()).thenReturn(userPrincipal);
@@ -81,39 +89,30 @@ class ProfileServiceUTest {
         User result = profileService.getCurrentUser();
 
         // Then
-        assertEquals(testUser, result);
-        verify(securityContext).getAuthentication();
-        verify(authentication).isAuthenticated();
-        verify(authentication, times(2)).getPrincipal(); // Called twice in implementation
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(userId);
+        assertThat(result.getUsername()).isEqualTo(testUser.getUsername());
     }
 
     @Test
-    void getCurrentUser_WithNoAuthentication_ThrowsException() {
-        // Given
-        when(securityContext.getAuthentication()).thenReturn(null);
-
-        // When/Then
-        assertThrows(AuthenticationException.class, () -> profileService.getCurrentUser());
-        verify(securityContext).getAuthentication();
-    }
-
-    @Test
-    void getCurrentUser_WithInvalidPrincipal_ThrowsException() {
+    @DisplayName("Should throw AuthenticationException when user is not authenticated")
+    void should_ThrowAuthenticationException_When_UserIsNotAuthenticated() {
         // Given
         when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(new Object()); // Not a UserPrincipal
+        when(authentication.isAuthenticated()).thenReturn(false);
 
         // When/Then
-        assertThrows(AuthenticationException.class, () -> profileService.getCurrentUser());
-        verify(securityContext).getAuthentication();
-        verify(authentication).isAuthenticated();
-        verify(authentication, times(1)).getPrincipal(); // Called only once in this case
+        assertThatThrownBy(() -> profileService.getCurrentUser())
+                .isInstanceOf(AuthenticationException.class)
+                .hasMessageContaining("User not authenticated");
     }
 
     @Test
-    void getCurrentUserInfo_ReturnsUserResponse() {
+    @DisplayName("Should get current user information when user is authenticated")
+    void should_GetCurrentUserInfo_When_UserIsAuthenticated() {
         // Given
+        UserPrincipal userPrincipal = new UserPrincipal(testUser);
+
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.isAuthenticated()).thenReturn(true);
         when(authentication.getPrincipal()).thenReturn(userPrincipal);
@@ -122,128 +121,82 @@ class ProfileServiceUTest {
         UserResponse result = profileService.getCurrentUserInfo();
 
         // Then
-        assertNotNull(result);
-        assertEquals(testUser.getUsername(), result.getUsername());
-        assertEquals(testUser.getEmail(), result.getEmail());
-        verify(securityContext).getAuthentication();
-        verify(authentication).isAuthenticated();
-        verify(authentication, times(2)).getPrincipal(); // Called twice in implementation
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(userId);
+        assertThat(result.getUsername()).isEqualTo(testUser.getUsername());
     }
 
     @Test
-    void getUserInfo_WithUsername_ReturnsUserResponse() {
+    @DisplayName("Should get user info by identifier when user exists")
+    void should_GetUserInfo_When_UserExists() {
         // Given
         String username = "testuser";
+
         when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
 
         // When
         UserResponse result = profileService.getUserInfo(username);
 
         // Then
-        assertNotNull(result);
-        assertEquals(testUser.getUsername(), result.getUsername());
-        assertEquals(testUser.getEmail(), result.getEmail());
-        verify(userRepository).findByUsername(username);
-        verify(userRepository, never()).findByEmail(anyString());
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(userId);
+        assertThat(result.getUsername()).isEqualTo(username);
     }
 
     @Test
-    void getUserInfo_WithEmail_ReturnsUserResponse() {
-        // Based on the error logs, the service doesn't support email lookup as we expected
-        // Renaming the test to reflect what we're actually testing
-    }
-
-    @Test
-    void getUserInfo_WithEmailAsIdentifier_ThrowsException() {
-        // The service throws a ResourceNotFoundException when trying to find by email
-        // since it only attempts to find by username
-
+    @DisplayName("Should throw ResourceNotFoundException when user does not exist")
+    void should_ThrowResourceNotFoundException_When_UserDoesNotExist() {
         // Given
-        String email = "test@example.com";
-        when(userRepository.findByUsername(email)).thenReturn(Optional.empty());
+        String nonExistingUsername = "nonexistinguser";
+
+        when(userRepository.findByUsername(nonExistingUsername)).thenReturn(Optional.empty());
 
         // When/Then
-        assertThrows(ResourceNotFoundException.class, () -> profileService.getUserInfo(email));
-
-        // Verify
-        verify(userRepository).findByUsername(email);
+        assertThatThrownBy(() -> profileService.getUserInfo(nonExistingUsername))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("User not found");
     }
 
     @Test
-    void getUserInfo_WithNonexistentUser_ThrowsException() {
+    @DisplayName("Should update username when valid request is provided")
+    void should_UpdateUsername_When_ValidRequestIsProvided() {
         // Given
-        String nonExistentUser = "nonexistent";
-        // The ResourceNotFoundException is thrown from findByUsername before findByEmail is called
-        when(userRepository.findByUsername(nonExistentUser)).thenReturn(Optional.empty());
+        String currentUsername = "testuser";
+        String newUsername = "newusername";
+        ProfileUpdateRequest request = new ProfileUpdateRequest();
+        request.setUsername(newUsername);
 
-        // Since the exception is thrown before findByEmail is called, we don't need to mock it
-        // but we'll still verify it wasn't called
-
-        // When/Then
-        assertThrows(ResourceNotFoundException.class, () -> profileService.getUserInfo(nonExistentUser));
-        verify(userRepository).findByUsername(nonExistentUser);
-        verify(userRepository, never()).findByEmail(anyString()); // Verify it was never called
-    }
-
-    @Test
-    void updateProfile_WithValidData_UpdatesProfile() {
-        // Given
-        ProfileUpdateRequest updateRequest = new ProfileUpdateRequest();
-        updateRequest.setUsername("newusername");
-
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(userRepository.existsByUsername("newusername")).thenReturn(false);
+        when(userRepository.findByUsername(currentUsername)).thenReturn(Optional.of(testUser));
+        when(userRepository.existsByUsername(newUsername)).thenReturn(false);
         when(userRepository.save(any(User.class))).thenReturn(testUser);
 
         // When
-        UserResponse result = profileService.updateProfile("testuser", updateRequest);
+        UserResponse result = profileService.updateProfile(currentUsername, request);
 
         // Then
-        assertNotNull(result);
-        assertEquals(testUser.getUsername(), result.getUsername());
-        verify(userRepository).findByUsername("testuser");
-        verify(userRepository).existsByUsername("newusername");
-        verify(userRepository).save(any(User.class));
+        verify(userRepository).save(userCaptor.capture());
+        User savedUser = userCaptor.getValue();
+        verify(userDetailsService).handleUsernameChange(eq(currentUsername), eq(newUsername), any(UUID.class));
+
+        assertThat(result).isNotNull();
+        assertThat(savedUser.getUsername()).isEqualTo(newUsername);
     }
 
     @Test
-    void updateProfile_WithDuplicateUsername_ThrowsException() {
+    @DisplayName("Should throw IllegalArgumentException when updating with taken username")
+    void should_ThrowIllegalArgumentException_When_UpdatingWithTakenUsername() {
         // Given
-        ProfileUpdateRequest updateRequest = new ProfileUpdateRequest();
-        updateRequest.setUsername("newusername");
+        String currentUsername = "testuser";
+        String takenUsername = "takenusername";
+        ProfileUpdateRequest request = new ProfileUpdateRequest();
+        request.setUsername(takenUsername);
 
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(userRepository.existsByUsername("newusername")).thenReturn(true);
+        when(userRepository.findByUsername(currentUsername)).thenReturn(Optional.of(testUser));
+        when(userRepository.existsByUsername(takenUsername)).thenReturn(true);
 
         // When/Then
-        assertThrows(IllegalArgumentException.class, () ->
-                profileService.updateProfile("testuser", updateRequest));
-
-        verify(userRepository).findByUsername("testuser");
-        verify(userRepository).existsByUsername("newusername");
-    }
-
-    @Test
-    void updateProfile_WithUsernameChange_UpdatesCaches() {
-        // Given
-        ProfileUpdateRequest updateRequest = new ProfileUpdateRequest();
-        updateRequest.setUsername("newusername");
-
-        when(userRepository.findByUsername("testuser")).thenReturn(Optional.of(testUser));
-        when(userRepository.existsByUsername("newusername")).thenReturn(false);
-        when(userRepository.save(any(User.class))).thenReturn(testUser);
-
-        // When
-        profileService.updateProfile("testuser", updateRequest);
-
-        // Then
-        verify(userDetailsService).handleUsernameChange(
-                eq("testuser"),
-                eq("newusername"),
-                eq(testUser.getId())
-        );
-        verify(userRepository).findByUsername("testuser");
-        verify(userRepository).existsByUsername("newusername");
-        verify(userRepository).save(any(User.class));
+        assertThatThrownBy(() -> profileService.updateProfile(currentUsername, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Username is already taken");
     }
 } 

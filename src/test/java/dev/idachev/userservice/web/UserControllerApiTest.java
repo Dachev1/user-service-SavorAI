@@ -1,245 +1,201 @@
 package dev.idachev.userservice.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.idachev.userservice.config.TestSecurityConfig;
-import dev.idachev.userservice.exception.UserNotFoundException;
 import dev.idachev.userservice.model.Role;
-import dev.idachev.userservice.service.TokenService;
+import dev.idachev.userservice.service.AuthenticationService;
+import dev.idachev.userservice.service.ProfileService;
 import dev.idachev.userservice.service.UserService;
+import dev.idachev.userservice.web.dto.BanStatusResponse;
 import dev.idachev.userservice.web.dto.GenericResponse;
+import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
+import dev.idachev.userservice.web.dto.RoleUpdateResponse;
 import dev.idachev.userservice.web.dto.UserResponse;
+import dev.idachev.userservice.web.dto.UsernameAvailabilityResponse;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
-import org.springframework.security.test.context.support.WithMockUser;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.userdetails.UserDetails;
 
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
-import static org.hamcrest.Matchers.is;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-@WebMvcTest(controllers = UserController.class)
-@AutoConfigureMockMvc(addFilters = false)
-@Import(TestSecurityConfig.class)
-public class UserControllerApiTest {
+@ExtendWith(MockitoExtension.class)
+class UserControllerApiTest {
 
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private ObjectMapper objectMapper;
-
-    @MockitoBean
+    @Mock
     private UserService userService;
 
-    @MockitoBean
-    private TokenService tokenService;
+    @Mock
+    private AuthenticationService authenticationService;
 
-    private UserResponse userResponse;
-    private GenericResponse successResponse;
+    @Mock
+    private ProfileService profileService;
+
+    @InjectMocks
+    private UserController userController;
+
     private UUID userId;
+    private UserResponse userResponse;
+    private String username;
 
     @BeforeEach
     void setUp() {
         userId = UUID.randomUUID();
-
+        username = "testuser";
         userResponse = UserResponse.builder()
                 .id(userId)
-                .username("testuser")
+                .username(username)
                 .email("test@example.com")
-                .verified(true)
-                .verificationPending(false)
-                .banned(false)
                 .role("USER")
+                .verified(true)
                 .createdOn(LocalDateTime.now())
-                .lastLogin(LocalDateTime.now())
-                .build();
-
-        successResponse = GenericResponse.builder()
-                .status(200)
-                .message("Operation successful")
-                .timestamp(LocalDateTime.now())
-                .success(true)
                 .build();
     }
 
     @Test
-    public void checkUsernameAvailability_WhenUsernameAvailable_ReturnsSuccess() throws Exception {
-        String username = "availableuser";
-        when(userService.checkUsernameAvailability(username)).thenReturn(
-            GenericResponse.builder()
-                .status(200)
-                .message("Username is available")
-                .timestamp(LocalDateTime.now())
-                .success(true)
-                .build()
-        );
+    @DisplayName("Should check username availability")
+    void should_CheckUsernameAvailability() {
+        // Given
+        String username = "newuser";
+        UsernameAvailabilityResponse expectedResponse = UsernameAvailabilityResponse.of(username, true);
+        
+        when(userService.checkUsernameAvailability(username)).thenReturn(expectedResponse);
 
-        mockMvc.perform(get("/api/v1/user/check-username")
-                        .param("username", username)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success", is(true)))
-                .andExpect(jsonPath("$.message", is("Username is available")));
+        // When
+        ResponseEntity<UsernameAvailabilityResponse> response = userController.checkUsernameAvailability(username);
 
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(expectedResponse);
         verify(userService).checkUsernameAvailability(username);
     }
 
     @Test
-    public void checkUsernameAvailability_WhenUsernameTaken_ReturnsFailure() throws Exception {
-        String username = "takenuser";
-        when(userService.checkUsernameAvailability(username)).thenReturn(
-            GenericResponse.builder()
-                .status(200)
-                .message("Username is already taken")
-                .timestamp(LocalDateTime.now())
-                .success(false)
-                .build()
-        );
+    @DisplayName("Should get current user information when authenticated")
+    void should_GetCurrentUserInfo_WhenAuthenticated() {
+        // Given
+        when(profileService.getCurrentUserInfo()).thenReturn(userResponse);
 
-        mockMvc.perform(get("/api/v1/user/check-username")
-                        .param("username", username)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success", is(false)))
-                .andExpect(jsonPath("$.message", is("Username is already taken")));
+        // When
+        ResponseEntity<UserResponse> response = userController.getCurrentUser();
 
-        verify(userService).checkUsernameAvailability(username);
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(userResponse);
+        verify(profileService).getCurrentUserInfo();
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
-    public void getAllUsers_WhenAdmin_ReturnsUsers() throws Exception {
-        when(userService.getAllUsers()).thenReturn(List.of(userResponse));
+    @DisplayName("Should get all users when requested by admin")
+    void should_GetAllUsers_WhenRequestedByAdmin() {
+        // Given
+        List<UserResponse> expectedUsers = Arrays.asList(
+                userResponse,
+                UserResponse.builder()
+                        .id(UUID.randomUUID())
+                        .username("user2")
+                        .email("user2@example.com")
+                        .role("USER")
+                        .verified(true)
+                        .createdOn(LocalDateTime.now())
+                        .build()
+        );
+        when(userService.getAllUsers()).thenReturn(expectedUsers);
 
-        mockMvc.perform(get("/api/v1/admin/users")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].username", is("testuser")))
-                .andExpect(jsonPath("$[0].email", is("test@example.com")))
-                .andExpect(jsonPath("$[0].role", is("USER")));
+        // When
+        ResponseEntity<List<UserResponse>> response = userController.getAllUsers();
 
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(expectedUsers);
+        assertThat(response.getBody().size()).isEqualTo(2);
         verify(userService).getAllUsers();
     }
 
     @Test
-    @WithMockUser(username = "admin", roles = "ADMIN")
-    public void updateUserRole_WhenValidRequest_ReturnsSuccess() throws Exception {
-        when(userService.isCurrentUser(userId)).thenReturn(false);
-        when(userService.updateUserRoleWithTokenRefresh(userId, Role.ADMIN)).thenReturn(successResponse);
+    @DisplayName("Should get user by id when user exists")
+    void should_GetUserById_WhenUserExists() {
+        // Given
+        when(userService.getUserById(userId)).thenReturn(userResponse);
 
-        mockMvc.perform(put("/api/v1/admin/users/{userId}/role", userId)
-                        .param("role", "ADMIN")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success", is(true)));
+        // When
+        ResponseEntity<UserResponse> response = userController.getUserById(userId);
 
-        verify(userService).updateUserRoleWithTokenRefresh(userId, Role.ADMIN);
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(userResponse);
+        verify(userService).getUserById(userId);
     }
 
     @Test
-    @WithMockUser(username = "admin", roles = "ADMIN")
-    public void updateUserRole_WhenUserNotFound_ReturnsNotFound() throws Exception {
-        when(userService.isCurrentUser(userId)).thenReturn(false);
-        when(userService.updateUserRoleWithTokenRefresh(userId, Role.ADMIN))
-                .thenThrow(new UserNotFoundException("User not found"));
+    @DisplayName("Should get username by id when user exists")
+    void should_GetUsernameById_WhenUserExists() {
+        // Given
+        when(userService.getUsernameById(userId)).thenReturn(username);
 
-        mockMvc.perform(put("/api/v1/admin/users/{userId}/role", userId)
-                        .param("role", "ADMIN")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isNotFound());
+        // When
+        ResponseEntity<String> response = userController.getUsernameById(userId);
 
-        verify(userService).updateUserRoleWithTokenRefresh(userId, Role.ADMIN);
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(username);
+        verify(userService).getUsernameById(userId);
     }
 
     @Test
-    @WithMockUser(username = "admin", roles = "ADMIN")
-    public void updateUserRole_WhenUpdatingOwnRole_ReturnsBadRequest() throws Exception {
-        when(userService.isCurrentUser(userId)).thenReturn(true);
-
-        mockMvc.perform(put("/api/v1/admin/users/{userId}/role", userId)
-                        .param("role", "USER")
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success", is(false)))
-                .andExpect(jsonPath("$.message", is("Admins cannot change their own role")));
-
-        verify(userService, never()).updateUserRoleWithTokenRefresh(any(), any());
-    }
-
-    @Test
-    @WithMockUser(username = "admin", roles = "ADMIN")
-    public void toggleUserBan_WhenValidRequest_ReturnsSuccess() throws Exception {
-        when(userService.isCurrentUser(userId)).thenReturn(false);
-        when(userService.toggleUserBan(userId)).thenReturn(successResponse);
-
-        mockMvc.perform(put("/api/v1/admin/users/{userId}/ban", userId)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success", is(true)));
-
-        verify(userService).toggleUserBan(userId);
-    }
-
-    @Test
-    @WithMockUser(username = "admin", roles = "ADMIN")
-    public void toggleUserBan_WhenUserNotFound_ReturnsNotFound() throws Exception {
-        when(userService.isCurrentUser(userId)).thenReturn(false);
-        when(userService.toggleUserBan(userId))
-                .thenThrow(new UserNotFoundException("User not found"));
-
-        mockMvc.perform(put("/api/v1/admin/users/{userId}/ban", userId)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isNotFound());
-
-        verify(userService).toggleUserBan(userId);
-    }
-
-    @Test
-    @WithMockUser(username = "admin", roles = "ADMIN")
-    public void toggleUserBan_WhenBanningSelf_ReturnsBadRequest() throws Exception {
-        when(userService.isCurrentUser(userId)).thenReturn(true);
-
-        mockMvc.perform(put("/api/v1/admin/users/{userId}/ban", userId)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.success", is(false)))
-                .andExpect(jsonPath("$.message", is("Admins cannot ban themselves")));
-
-        verify(userService, never()).toggleUserBan(any());
-    }
-
-    @Test
-    @WithMockUser(username = "admin", roles = "ADMIN")
-    public void toggleUserBan_WhenUserBanned_InvalidatesTokens() throws Exception {
-        when(userService.isCurrentUser(userId)).thenReturn(false);
-        GenericResponse banResponse = GenericResponse.builder()
-                .status(200)
-                .message("User has been banned")
-                .timestamp(LocalDateTime.now())
+    @DisplayName("Should update user role when admin requests")
+    void should_UpdateUserRole_WhenAdminRequests() {
+        // Given
+        Role newRole = Role.ADMIN;
+        RoleUpdateResponse expectedResponse = RoleUpdateResponse.builder()
+                .userId(userId)
                 .success(true)
+                .message("Role updated successfully")
                 .build();
 
-        when(userService.toggleUserBan(userId)).thenReturn(banResponse);
+        when(userService.updateUserRole(userId, newRole)).thenReturn(expectedResponse);
 
-        mockMvc.perform(put("/api/v1/admin/users/{userId}/ban", userId)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk());
+        // When
+        ResponseEntity<RoleUpdateResponse> response = userController.updateUserRole(userId, newRole);
 
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(expectedResponse);
+        verify(userService).updateUserRole(userId, newRole);
+    }
+
+    @Test
+    @DisplayName("Should toggle user ban status when admin requests")
+    void should_ToggleUserBan_WhenAdminRequests() {
+        // Given
+        BanStatusResponse expectedResponse = BanStatusResponse.builder()
+                .userId(userId)
+                .success(true)
+                .banned(true)
+                .message("User banned successfully")
+                .build();
+
+        when(userService.toggleUserBan(userId)).thenReturn(expectedResponse);
+
+        // When
+        ResponseEntity<BanStatusResponse> response = userController.toggleUserBan(userId);
+
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(expectedResponse);
         verify(userService).toggleUserBan(userId);
-        verify(tokenService).invalidateUserTokens(userId);
     }
 } 

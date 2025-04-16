@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 
@@ -26,6 +27,7 @@ public class AdminUserInit implements CommandLineRunner {
     }
 
     @Override
+    @Transactional
     public void run(String... args) {
         String username = "Ivan";
         String email = "pffe3e@gmail.com";

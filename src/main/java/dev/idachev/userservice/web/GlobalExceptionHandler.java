@@ -3,6 +3,7 @@ package dev.idachev.userservice.web;
 import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.DuplicateUserException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
+import dev.idachev.userservice.exception.UserServiceException;
 import dev.idachev.userservice.web.dto.GenericResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -65,6 +66,30 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles user not found exceptions
+     */
+    @ExceptionHandler(dev.idachev.userservice.exception.UserNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ResponseEntity<GenericResponse> handleUserNotFoundException(dev.idachev.userservice.exception.UserNotFoundException ex) {
+        log.warn("User not found: {}", ex.getMessage());
+        
+        // Always return NOT_FOUND for user not found exceptions
+        return createResponse(HttpStatus.NOT_FOUND, ex.getMessage());
+    }
+
+    /**
+     * Handles invalid token exceptions
+     */
+    @ExceptionHandler(dev.idachev.userservice.exception.InvalidTokenException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ResponseEntity<GenericResponse> handleInvalidTokenException(dev.idachev.userservice.exception.InvalidTokenException ex) {
+        log.warn("Invalid token: {}", ex.getMessage());
+        
+        // Always return UNAUTHORIZED for token validation failures
+        return createResponse(HttpStatus.UNAUTHORIZED, ex.getMessage());
+    }
+
+    /**
      * Handles validation errors from request body validation
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -121,6 +146,36 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles UserServiceException - base exception for service-specific errors
+     */
+    @ExceptionHandler(UserServiceException.class)
+    public ResponseEntity<GenericResponse> handleUserServiceException(UserServiceException ex) {
+        log.warn("User service error: {} with code: {}", ex.getMessage(), ex.getErrorCode());
+        
+        // Determine HTTP status based on error code or default to BAD_REQUEST
+        HttpStatus status = HttpStatus.BAD_REQUEST;
+        if (ex.getErrorCode().startsWith("AUTH_")) {
+            status = HttpStatus.UNAUTHORIZED;
+        } else if (ex.getErrorCode().startsWith("FORBIDDEN_")) {
+            status = HttpStatus.FORBIDDEN;
+        } else if (ex.getErrorCode().startsWith("NOT_FOUND_")) {
+            status = HttpStatus.NOT_FOUND;
+        } else if (ex.getErrorCode().startsWith("CONFLICT_")) {
+            status = HttpStatus.CONFLICT;
+        }
+        
+        GenericResponse errorResponse = GenericResponse.builder()
+                .status(status.value())
+                .message(ex.getMessage())
+                .timestamp(LocalDateTime.now())
+                .success(false)
+                .errorCode(ex.getErrorCode()) // Include the error code in the response
+                .build();
+                
+        return ResponseEntity.status(status).body(errorResponse);
+    }
+
+    /**
      * Handles authorization exceptions (Access Denied)
      */
     @ExceptionHandler(AccessDeniedException.class)
@@ -144,13 +199,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ResponseEntity<GenericResponse> handleGenericException(Exception ex) {
-        log.error("Unexpected error: {}", ex.getMessage(), ex);
-        return createResponse(HttpStatus.INTERNAL_SERVER_ERROR, 
-                "An unexpected error occurred. Please try again later or contact support.");
+        log.error("Unhandled exception", ex);
+        
+        // Don't expose detailed error message for security reasons 
+        return createResponse(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred. Please try again later.");
     }
 
     /**
-     * Creates a standardized error response
+     * Helper method to create consistent error responses
      */
     private ResponseEntity<GenericResponse> createResponse(HttpStatus status, String message) {
         GenericResponse errorResponse = GenericResponse.builder()
@@ -159,7 +215,7 @@ public class GlobalExceptionHandler {
                 .timestamp(LocalDateTime.now())
                 .success(false)
                 .build();
-
+                
         return ResponseEntity.status(status).body(errorResponse);
     }
 } 

@@ -2,18 +2,22 @@ package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.DuplicateUserException;
+import dev.idachev.userservice.exception.InvalidTokenException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
+import dev.idachev.userservice.exception.UserNotFoundException;
 import dev.idachev.userservice.mapper.DtoMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
+import dev.idachev.userservice.util.ResponseBuilder;
 import dev.idachev.userservice.web.dto.AuthResponse;
 import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.RegisterRequest;
 import dev.idachev.userservice.web.dto.SignInRequest;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -33,16 +37,29 @@ import java.util.UUID;
  */
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class AuthenticationService {
 
     private final UserRepository userRepository;
     private final AuthenticationManager authenticationManager;
     private final TokenService tokenService;
-    private final UserDetailsService userDetailsService;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final UserService userService;
+
+    @Autowired
+    public AuthenticationService(UserRepository userRepository,
+                                AuthenticationManager authenticationManager,
+                                TokenService tokenService,
+                                PasswordEncoder passwordEncoder,
+                                EmailService emailService,
+                                UserService userService) {
+        this.userRepository = userRepository;
+        this.authenticationManager = authenticationManager;
+        this.tokenService = tokenService;
+        this.passwordEncoder = passwordEncoder;
+        this.emailService = emailService;
+        this.userService = userService;
+    }
 
     /**
      * Registers a new user
@@ -60,10 +77,13 @@ public class AuthenticationService {
         User savedUser = userService.registerUser(request);
         emailService.sendVerificationEmailAsync(savedUser);
         
+        // Generate token for the new user
+        String token = tokenService.generateToken(new UserPrincipal(savedUser));
+        
+        // Return response with token
         return DtoMapper.mapToAuthResponse(
                 savedUser,
-                true,
-                "Registration successful! Please check your email to verify your account."
+                token
         );
     }
 
@@ -72,7 +92,6 @@ public class AuthenticationService {
      */
     @Transactional
     public AuthResponse signIn(SignInRequest request) {
-        // Regular authentication flow
         User user = findUserByIdentifier(request.getIdentifier());
 
         if (!user.isEnabled()) {
@@ -95,8 +114,7 @@ public class AuthenticationService {
 
             String token = tokenService.generateToken(userPrincipal);
             return DtoMapper.mapToAuthResponse(user, token);
-        } catch (org.springframework.security.authentication.BadCredentialsException e) {
-            // Convert to our generic auth exception for security
+        } catch (BadCredentialsException e) {
             throw new AuthenticationException("Invalid credentials");
         }
     }
@@ -111,22 +129,22 @@ public class AuthenticationService {
         }
         
         return userRepository.findByEmail(identifier)
-                .orElseThrow(() -> new AuthenticationException("Invalid credentials"));
+                .orElseThrow(() -> new dev.idachev.userservice.exception.UserNotFoundException("User not found with identifier: " + identifier));
     }
 
     /**
-     * Logs out the user
+     * Logs out the user and blacklists their token
      */
     @Transactional
-    public void logout(String token) {
-        if (token == null || token.isBlank()) {
-            return;
-        }
-
-        String tokenWithoutBearer = token.startsWith("Bearer ") ? token.substring(7) : token;
+    public GenericResponse logout(String authHeader) {
+        String token = extractTokenFromHeader(authHeader);
         
-        UUID userId = tokenService.extractUserId(tokenWithoutBearer);
-        tokenService.blacklistToken(tokenWithoutBearer);
+        if (token == null) {
+            return ResponseBuilder.success("No active session found");
+        }
+        
+        UUID userId = tokenService.extractUserId(token);
+        tokenService.blacklistToken(token);
         
         if (userId != null) {
             userRepository.findById(userId).ifPresent(user -> {
@@ -134,6 +152,8 @@ public class AuthenticationService {
                 userRepository.save(user);
             });
         }
+        
+        return ResponseBuilder.success("Successfully logged out");
     }
 
     /**
@@ -141,23 +161,31 @@ public class AuthenticationService {
      */
     @Transactional
     public AuthResponse refreshToken(String authHeader) {
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        String token = extractTokenFromHeader(authHeader);
+        
+        if (token == null) {
             throw new AuthenticationException("Invalid or missing Authorization header");
         }
 
-        String jwtToken = authHeader.substring(7);
-
-        if (tokenService.isTokenBlacklisted(jwtToken)) {
+        if (tokenService.isTokenBlacklisted(token)) {
             throw new AuthenticationException("Token is blacklisted or has been logged out");
         }
 
-        UUID userId = tokenService.extractUserId(jwtToken);
+        UUID userId;
+        try {
+            userId = tokenService.extractUserId(token);
+            if (userId == null) {
+                throw new InvalidTokenException("Invalid token: User ID not found");
+            }
+        } catch (Exception e) {
+            throw new InvalidTokenException("Invalid token format", e);
+        }
         
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found for token"));
+                .orElseThrow(() -> new UserNotFoundException("User not found for token"));
 
         // Blacklist the old token for security
-        tokenService.blacklistToken(jwtToken);
+        tokenService.blacklistToken(token);
 
         String newToken = tokenService.generateToken(new UserPrincipal(user));
         
@@ -166,87 +194,42 @@ public class AuthenticationService {
 
     /**
      * Changes a user's username
-     * 
-     * @throws IllegalArgumentException if input parameters are invalid
-     * @throws ResourceNotFoundException if user doesn't exist
-     * @throws AuthenticationException if password is incorrect
-     * @throws DuplicateUserException if new username is already taken
      */
     @Transactional
     public GenericResponse changeUsername(String currentUsername, String newUsername, String password) {
-        log.debug("Starting username change process: currentUsername={}, newUsername={}", 
-                currentUsername, newUsername);
-                
-        // Validate inputs
         if (currentUsername == null || newUsername == null || password == null || 
             newUsername.isBlank() || password.isBlank()) {
-            log.warn("Username change validation failed: missing required fields");
             throw new IllegalArgumentException("Username and password are required");
         }
         
-        // Format validation is done primarily through DTO annotations,
-        // this is just a secondary check for direct API calls
         if (!newUsername.matches("^[a-zA-Z0-9._-]{3,50}$")) {
-            log.warn("Username format validation failed: newUsername={} doesn't match required pattern", newUsername);
             throw new IllegalArgumentException(
                 "Username must be 3-50 characters and contain only letters, numbers, dots, underscores, and hyphens");
         }
         
-        // Find user
-        log.debug("Looking up user by username: {}", currentUsername);
         User user = userRepository.findByUsername(currentUsername)
-                .orElseThrow(() -> {
-                    log.error("User not found for username change: {}", currentUsername);
-                    return new ResourceNotFoundException("User not found");
-                });
-        log.debug("User found: id={}, username={}", user.getId(), user.getUsername());
+                .orElseThrow(() -> new UserNotFoundException("User not found"));
 
         // Short-circuit if username unchanged
         if (currentUsername.equals(newUsername)) {
-            log.info("Username change skipped - new username is the same as current: {}", currentUsername);
-            return GenericResponse.builder()
-                    .status(200)
-                    .message("Username unchanged")
-                    .timestamp(LocalDateTime.now())
-                    .success(true)
-                    .build();
+            return ResponseBuilder.success("Username unchanged");
         }
         
-        // Verify password
-        log.debug("Verifying password for user: {}", currentUsername);
         if (!passwordEncoder.matches(password, user.getPassword())) {
-            log.warn("Password verification failed for username change: user={}", currentUsername);
             throw new AuthenticationException("Current password is incorrect");
         }
-        log.debug("Password verification successful for user: {}", currentUsername);
 
-        // Check availability
-        log.debug("Checking if username already exists: {}", newUsername);
         if (userRepository.existsByUsername(newUsername)) {
-            log.warn("Username already exists: {}", newUsername);
             throw new DuplicateUserException("Username already exists");
         }
 
-        // Update user
-        log.info("Updating username from '{}' to '{}'", currentUsername, newUsername);
         user.setUsername(newUsername);
         user.setUpdatedOn(LocalDateTime.now());
         userRepository.save(user);
-        log.debug("Username updated in database: userId={}, oldUsername={}, newUsername={}", 
-                user.getId(), currentUsername, newUsername);
         
-        // Invalidate tokens
-        log.debug("Invalidating tokens for user: id={}", user.getId());
         tokenService.invalidateUserTokens(user.getId());
-        log.info("Tokens invalidated for user: id={}", user.getId());
 
-        log.info("Username change completed successfully: from '{}' to '{}'", currentUsername, newUsername);
-        return GenericResponse.builder()
-                .status(200)
-                .message("Username updated successfully")
-                .timestamp(LocalDateTime.now())
-                .success(true)
-                .build();
+        return ResponseBuilder.success("Username updated successfully");
     }
 
     /**
@@ -260,5 +243,14 @@ public class AuthenticationService {
         response.put("banned", user.isBanned());
         response.put("enabled", user.isEnabled());
         return response;
+    }
+    
+    /**
+     * Extracts token from Authorization header
+     */
+    private String extractTokenFromHeader(String authHeader) {
+        return authHeader != null && authHeader.startsWith("Bearer ") 
+            ? authHeader.substring(7) 
+            : null;
     }
 } 

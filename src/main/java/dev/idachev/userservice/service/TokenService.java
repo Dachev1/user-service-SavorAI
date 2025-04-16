@@ -2,6 +2,7 @@ package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.config.JwtConfig;
 import dev.idachev.userservice.exception.AuthenticationException;
+import dev.idachev.userservice.exception.InvalidTokenException;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.security.UserPrincipal;
 import io.jsonwebtoken.ExpiredJwtException;
@@ -31,20 +32,7 @@ public class TokenService {
     }
 
     /**
-     * Extracts JWT token without the Bearer prefix
-     */
-    private String extractJwtToken(String token) {
-        if (token != null && token.startsWith("Bearer ")) {
-            return token.substring(7);
-        }
-        return token;
-    }
-
-    /**
      * Generates a JWT token for a user
-     *
-     * @param userDetails User details
-     * @return JWT token
      */
     public String generateToken(UserDetails userDetails) {
         return jwtConfig.generateToken(userDetails);
@@ -52,10 +40,6 @@ public class TokenService {
 
     /**
      * Validates a JWT token
-     *
-     * @param token       JWT token
-     * @param userDetails User details
-     * @return True if token is valid
      */
     public boolean validateToken(String token, UserDetails userDetails) {
         String jwtToken = extractJwtToken(token);
@@ -64,7 +48,6 @@ public class TokenService {
             return false;
         }
 
-        // Check if this user's tokens have been invalidated
         if (userDetails instanceof UserPrincipal userPrincipal) {
             User user = userPrincipal.user();
             String userInvalidationKey = "user_tokens_invalidated:" + user.getId().toString();
@@ -78,39 +61,47 @@ public class TokenService {
 
     /**
      * Extracts user ID from a token
-     *
-     * @param token JWT token
-     * @return User ID
      */
     public UUID extractUserId(String token) {
-        return jwtConfig.extractUserId(extractJwtToken(token));
+        return extractClaim(token, jwtConfig::extractUserId, "user ID");
     }
 
     /**
      * Extracts username from a token
-     *
-     * @param token JWT token
-     * @return Username
      */
     public String extractUsername(String token) {
-        return jwtConfig.extractUsername(extractJwtToken(token));
+        return extractClaim(token, jwtConfig::extractUsername, "username");
     }
 
     /**
      * Extracts expiration date from a token
-     *
-     * @param token JWT token
-     * @return Expiration date
      */
     public Date extractExpiration(String token) {
-        return jwtConfig.extractExpiration(extractJwtToken(token));
+        return extractClaim(token, jwtConfig::extractExpiration, "expiration date");
+    }
+
+    /**
+     * Generic method to extract claims from token with proper error handling
+     */
+    private <T> T extractClaim(String token, ClaimExtractor<T> extractor, String claimName) {
+        try {
+            return extractor.extract(extractJwtToken(token));
+        } catch (Exception e) {
+            log.warn("Error extracting {} from token: {}", claimName, e.getMessage());
+            throw new InvalidTokenException("Invalid token format", e);
+        }
+    }
+
+    /**
+     * Functional interface for claim extraction
+     */
+    @FunctionalInterface
+    private interface ClaimExtractor<T> {
+        T extract(String token);
     }
 
     /**
      * Blacklists a token
-     *
-     * @param token JWT token
-     * @return True if blacklisting was successful
      */
     public boolean blacklistToken(String token) {
         try {
@@ -122,8 +113,11 @@ public class TokenService {
 
             Date expirationDate = extractExpiration(jwtToken);
             tokenBlacklistService.blacklistToken(jwtToken, expirationDate.getTime());
-            log.info("Token blacklisted successfully. Forcing logout for security.");
+            log.info("Token blacklisted successfully");
             return true;
+        } catch (InvalidTokenException e) {
+            log.error("Failed to blacklist invalid token: {}", e.getMessage());
+            return false;
         } catch (Exception e) {
             log.error("Failed to blacklist token: {}", e.getMessage());
             return false;
@@ -132,9 +126,6 @@ public class TokenService {
 
     /**
      * Checks if a token is blacklisted
-     *
-     * @param token JWT token
-     * @return True if token is blacklisted
      */
     public boolean isTokenBlacklisted(String token) {
         return tokenBlacklistService.isBlacklisted(extractJwtToken(token));
@@ -142,10 +133,6 @@ public class TokenService {
 
     /**
      * Refreshes a JWT token
-     *
-     * @param token       Original token
-     * @param userDetails User details
-     * @return New JWT token
      */
     public String refreshToken(String token, UserDetails userDetails) throws AuthenticationException {
         try {
@@ -161,16 +148,12 @@ public class TokenService {
                 User user = userPrincipal.user();
 
                 if (user.isBanned()) {
-                    if (!blacklistToken(jwtToken)) {
-                        log.warn("Failed to blacklist token for banned user {}", userId);
-                    }
+                    blacklistToken(jwtToken);
                     throw new AuthenticationException("User is banned");
                 }
 
                 if (user.getId().equals(userId)) {
-                    if (!blacklistToken(jwtToken)) {
-                        log.warn("Failed to blacklist token during refresh for user {}", userId);
-                    }
+                    blacklistToken(jwtToken);
                     return generateToken(userDetails);
                 } else {
                     throw new AuthenticationException("Invalid token refresh attempt");
@@ -179,23 +162,18 @@ public class TokenService {
                 throw new AuthenticationException("Invalid user principal");
             }
         } catch (ExpiredJwtException e) {
-            log.warn("Expired token in refreshToken: {}", e.getMessage());
             throw new AuthenticationException("Expired token", e);
         } catch (JwtException e) {
-            log.warn("Invalid token in refreshToken: {}", e.getMessage());
             throw new AuthenticationException("Invalid token", e);
         } catch (AuthenticationException e) {
             throw e;
         } catch (Exception e) {
-            log.error("Error refreshing token: {}", e.getMessage());
             throw new AuthenticationException("Token refresh failed", e);
         }
     }
 
     /**
      * Invalidates all tokens for a specific user
-     *
-     * @param userId The user ID whose tokens should be invalidated
      */
     public void invalidateUserTokens(UUID userId) {
         if (userId == null) {
@@ -204,11 +182,22 @@ public class TokenService {
         }
 
         try {
-            log.info("Invalidating all tokens for user: {}", userId);
             String userSpecificToken = "user_tokens_invalidated:" + userId.toString();
-            tokenBlacklistService.blacklistToken(userSpecificToken, System.currentTimeMillis() + (30L * 24 * 60 * 60 * 1000)); // 30 days expiry
+            // 30 days expiry for user token invalidation
+            long expiryTime = System.currentTimeMillis() + (30L * 24 * 60 * 60 * 1000);
+            tokenBlacklistService.blacklistToken(userSpecificToken, expiryTime);
         } catch (Exception e) {
             log.error("Error invalidating tokens for user {}: {}", userId, e.getMessage());
         }
+    }
+    
+    /**
+     * Extracts JWT token without the Bearer prefix
+     */
+    private String extractJwtToken(String token) {
+        if (token != null && token.startsWith("Bearer ")) {
+            return token.substring(7);
+        }
+        return token;
     }
 } 

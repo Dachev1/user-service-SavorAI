@@ -30,19 +30,36 @@ public class UserDetailsService implements org.springframework.security.core.use
         this.cacheManager = cacheManager;
     }
 
+    /**
+     * Load a user by username or email
+     */
     @Override
     @Transactional(readOnly = true)
     @Cacheable(value = "userDetails", key = "#usernameOrEmail", unless = "#result == null")
     public UserDetails loadUserByUsername(String usernameOrEmail) throws UsernameNotFoundException {
+        if (usernameOrEmail == null || usernameOrEmail.trim().isEmpty()) {
+            log.warn("Attempted to load user with null or empty username/email");
+            throw new UsernameNotFoundException("Username/email cannot be null or empty");
+        }
+        
         log.debug("Loading user by identifier: {}", usernameOrEmail);
-
+        
         User user = userRepository.findByUsername(usernameOrEmail)
                 .or(() -> userRepository.findByEmail(usernameOrEmail))
                 .orElseThrow(() -> {
                     log.warn("User not found with identifier: {}", usernameOrEmail);
                     return new UsernameNotFoundException("User not found with identifier: " + usernameOrEmail);
                 });
-
+        
+        // Additional validation checks
+        if (!user.isEnabled() && user.isBanned()) {
+            log.warn("User '{}' is disabled and banned", usernameOrEmail);
+        } else if (!user.isEnabled()) {
+            log.warn("User '{}' is disabled", usernameOrEmail);
+        } else if (user.isBanned()) {
+            log.warn("User '{}' is banned", usernameOrEmail);
+        }
+        
         return new UserPrincipal(user);
     }
 
@@ -52,6 +69,11 @@ public class UserDetailsService implements org.springframework.security.core.use
     @Transactional(readOnly = true)
     @Cacheable(value = "userDetails", key = "'id_' + #userId", unless = "#result == null")
     public UserDetails loadUserById(UUID userId) throws UsernameNotFoundException {
+        if (userId == null) {
+            log.warn("Attempted to load user with null ID");
+            throw new UsernameNotFoundException("User ID cannot be null");
+        }
+        
         log.debug("Loading user by ID: {}", userId);
 
         User user = userRepository.findById(userId)
@@ -59,7 +81,16 @@ public class UserDetailsService implements org.springframework.security.core.use
                     log.warn("User not found with ID: {}", userId);
                     return new UsernameNotFoundException("User not found with ID: " + userId);
                 });
-
+        
+        // Additional validation checks
+        if (!user.isEnabled() && user.isBanned()) {
+            log.warn("User with ID {} is disabled and banned", userId);
+        } else if (!user.isEnabled()) {
+            log.warn("User with ID {} is disabled", userId);
+        } else if (user.isBanned()) {
+            log.warn("User with ID {} is banned", userId);
+        }
+        
         return new UserPrincipal(user);
     }
 

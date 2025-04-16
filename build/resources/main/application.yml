@@ -7,7 +7,7 @@ spring:
   application:
     name: user-service
   
-  # Import environment variables from .properties file
+  # Import environment variables
   config:
     import: optional:classpath:.env.properties
   
@@ -25,10 +25,8 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
-        globally_quoted_identifiers: true
-        globally_quoted_identifiers_skip_column_definitions: true
   
-  # Email configuration for contact form
+  # Email configuration
   mail:
     host: smtp.gmail.com
     port: 587
@@ -41,9 +39,8 @@ spring:
           starttls:
             enable: true
 
-# Frontend application configuration
+# Application configuration
 app:
-  # Service URL (used for email verification links)
   service:
     url: http://localhost:8081
   frontend:
@@ -54,7 +51,7 @@ jwt:
   secret: ${JWT_SECRET}
   expiration: 86400000 # 24 hours
   blacklist:
-    cleanup-interval: 3600 # Cleanup interval in seconds (1 hour)
+    cleanup-interval: 3600 # 1 hour
 
 # CORS configuration
 cors:
@@ -63,18 +60,15 @@ cors:
   allowed-headers: Authorization,Content-Type,X-Requested-With,X-Request-ID
   exposed-headers: X-Request-ID
   allow-credentials: true
-  max-age: 3600
 
 # Logging configuration
 logging:
   level:
     root: INFO
     dev.idachev.userservice: DEBUG
-    org.springframework.web: INFO
-    org.springframework.security: INFO
     org.hibernate.SQL: DEBUG
 
-# Swagger/OpenAPI configuration
+# API documentation
 springdoc:
   api-docs:
     path: /api-docs

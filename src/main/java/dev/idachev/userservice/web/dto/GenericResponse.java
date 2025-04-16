@@ -31,4 +31,7 @@ public class GenericResponse {
     private LocalDateTime timestamp;
 
     private boolean success;
+    
+    @Schema(description = "Error code for failed operations", example = "AUTH_INVALID")
+    private String errorCode;
 } 

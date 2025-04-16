@@ -9,24 +9,26 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
-
-import java.security.Principal;
 
 /**
  * Controller for user profile operations
  */
 @RestController
 @RequestMapping("/api/v1/profile")
-@Tag(name = "Profile", description = "User profile endpoints")
-@RequiredArgsConstructor
+@Tag(name = "Profile")
 public class ProfileController {
 
     private final ProfileService profileService;
+    
+    @Autowired
+    public ProfileController(ProfileService profileService) {
+        this.profileService = profileService;
+    }
 
     @GetMapping
     @Operation(
@@ -72,9 +74,7 @@ public class ProfileController {
     })
     public ResponseEntity<UserResponse> updateProfile(
             @Valid @RequestBody ProfileUpdateRequest request,
-            @AuthenticationPrincipal UserDetails userDetails,
-            Principal principal) {
-        String username = userDetails != null ? userDetails.getUsername() : principal.getName();
-        return ResponseEntity.ok(profileService.updateProfile(username, request));
+            @AuthenticationPrincipal UserDetails userDetails) {
+        return ResponseEntity.ok(profileService.updateProfile(userDetails.getUsername(), request));
     }
 } 

@@ -7,11 +7,12 @@ import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
-import dev.idachev.userservice.web.dto.GenericResponse;
+import dev.idachev.userservice.web.dto.BanStatusResponse;
 import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
 import dev.idachev.userservice.web.dto.RegisterRequest;
+import dev.idachev.userservice.web.dto.RoleUpdateResponse;
 import dev.idachev.userservice.web.dto.UserResponse;
-import lombok.RequiredArgsConstructor;
+import dev.idachev.userservice.web.dto.UsernameAvailabilityResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
@@ -25,7 +26,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -34,7 +34,6 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class UserService {
 
     private final UserRepository userRepository;
@@ -43,6 +42,20 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final TokenService tokenService;
+
+    public UserService(UserRepository userRepository,
+                      UserDetailsService userDetailsService,
+                      CacheManager cacheManager,
+                      PasswordEncoder passwordEncoder,
+                      EmailService emailService,
+                      TokenService tokenService) {
+        this.userRepository = userRepository;
+        this.userDetailsService = userDetailsService;
+        this.cacheManager = cacheManager;
+        this.passwordEncoder = passwordEncoder;
+        this.emailService = emailService;
+        this.tokenService = tokenService;
+    }
 
     /**
      * Registers a new user
@@ -69,75 +82,80 @@ public class UserService {
     }
 
     /**
-     * Sets a user's role (admin only)
-     */
-    @Transactional
-    @CacheEvict(value = "users", allEntries = true)
-    public GenericResponse setUserRole(UUID userId, Role role) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
-
-        user.setRole(role);
-        user.setUpdatedOn(LocalDateTime.now());
-        userRepository.saveAndFlush(user);
-
-        return GenericResponse.builder()
-                .status(200)
-                .message("User role updated successfully")
-                .timestamp(LocalDateTime.now())
-                .success(true)
-                .build();
-    }
-
-    /**
      * Updates a user's role and refreshes their token
      */
     @Transactional
-    @CacheEvict(value = "users", allEntries = true)
-    public GenericResponse updateUserRoleWithTokenRefresh(UUID userId, Role role) {
-        // First update the role in the database
-        GenericResponse roleUpdateResponse = setUserRole(userId, role);
+    @CacheEvict(value = {"users", "usernames"}, allEntries = true)
+    public RoleUpdateResponse updateUserRole(UUID userId, Role role) {
+        if (isCurrentUser(userId)) {
+            return RoleUpdateResponse.error("Admins cannot change their own role");
+        }
+        
+        try {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
 
-        // If the database update was successful, refresh token
-        if (roleUpdateResponse.isSuccess()) {
+            user.setRole(role);
+            user.setUpdatedOn(LocalDateTime.now());
+            User savedUser = userRepository.saveAndFlush(user);
+            
+            boolean tokenRefreshed = true;
             try {
                 tokenService.invalidateUserTokens(userId);
             } catch (Exception e) {
-                roleUpdateResponse.setMessage(roleUpdateResponse.getMessage() +
-                        " (Note: Token refresh failed, user will need to log out and back in)");
+                log.error("Failed to refresh token for user {}: {}", userId, e.getMessage());
+                tokenRefreshed = false;
             }
+            
+            return RoleUpdateResponse.success(
+                savedUser.getId(),
+                savedUser.getUsername(),
+                savedUser.getRole(),
+                tokenRefreshed
+            );
+        } catch (ResourceNotFoundException e) {
+            return RoleUpdateResponse.error(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error during role update: {}", e.getMessage(), e);
+            return RoleUpdateResponse.error("Failed to update role: " + e.getMessage());
         }
-
-        return roleUpdateResponse;
     }
 
     /**
-     * Toggles a user's ban status (admin only)
+     * Toggles a user's ban status and invalidates their tokens if they are banned
      */
     @Transactional
-    @CacheEvict(value = "users", allEntries = true)
-    public GenericResponse toggleUserBan(UUID userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
-
-        // Toggle ban status
-        user.setBanned(!user.isBanned());
-        User savedUser = userRepository.save(user);
-
-        // Clear specific cache entries
-        cacheEvict("users", "username_" + savedUser.getUsername());
-        cacheEvict("users", "email_" + savedUser.getEmail());
-        cacheEvict("users", savedUser.getId().toString());
-        cacheEvict("users", "exists_username_" + savedUser.getUsername());
-
-        String message = user.isBanned() ? "User banned successfully" : "User unbanned successfully";
-
-        return GenericResponse.builder()
-                .status(200)
-                .message(message)
-                .timestamp(LocalDateTime.now())
-                .success(true)
-                .build();
+    @CacheEvict(value = {"users", "usernames"}, allEntries = true)
+    public BanStatusResponse toggleUserBan(UUID userId) {
+        if (isCurrentUser(userId)) {
+            return BanStatusResponse.error("Admins cannot ban themselves");
+        }
+        
+        try {
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+                    
+            user.setBanned(!user.isBanned());
+            User savedUser = userRepository.save(user);
+            
+            String message = user.isBanned() ? "User banned successfully" : "User unbanned successfully";
+            
+            if (user.isBanned()) {
+                tokenService.invalidateUserTokens(userId);
+            }
+            
+            return BanStatusResponse.success(
+                savedUser.getId(), 
+                savedUser.getUsername(), 
+                savedUser.isBanned(),
+                message
+            );
+        } catch (ResourceNotFoundException e) {
+            return BanStatusResponse.error(e.getMessage());
+        } catch (Exception e) {
+            log.error("Error during ban operation: {}", e.getMessage(), e);
+            return BanStatusResponse.error("Failed to process ban operation: " + e.getMessage());
+        }
     }
 
     /**
@@ -145,7 +163,7 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     @Cacheable(value = "users", key = "#userId")
-    public UserResponse findUserById(UUID userId) {
+    public UserResponse getUserById(UUID userId) {
         return userRepository.findById(userId)
                 .map(DtoMapper::mapToUserResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
@@ -156,7 +174,7 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     @Cacheable(value = "users", key = "'username_' + #username")
-    public UserResponse findUserByUsername(String username) {
+    public UserResponse getUserByUsername(String username) {
         return userRepository.findByUsername(username)
                 .map(DtoMapper::mapToUserResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username));
@@ -167,7 +185,7 @@ public class UserService {
      */
     @Transactional(readOnly = true)
     @Cacheable(value = "users", key = "'email_' + #email")
-    public UserResponse findUserByEmail(String email) {
+    public UserResponse getUserByEmail(String email) {
         return userRepository.findByEmail(email)
                 .map(DtoMapper::mapToUserResponse)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
@@ -183,8 +201,9 @@ public class UserService {
     }
 
     /**
-     * Finds a user by username
+     * Finds a user entity by username
      */
+    @Transactional(readOnly = true)
     @Cacheable(value = "users", key = "#username")
     public User findByUsername(String username) {
         return userRepository.findByUsername(username)
@@ -195,7 +214,7 @@ public class UserService {
      * Updates a user's profile
      */
     @Transactional
-    @CacheEvict(value = "users", key = "#currentUsername")
+    @CacheEvict(value = {"users", "usernames"}, allEntries = true)
     public UserResponse updateProfile(String currentUsername, ProfileUpdateRequest request) {
         User user = findByUsername(currentUsername);
         boolean usernameChanged = false;
@@ -210,12 +229,7 @@ public class UserService {
 
         User savedUser = userRepository.save(user);
 
-        // Handle cache invalidation if username changed
         if (usernameChanged) {
-            cacheEvict("users", "username_" + savedUser.getUsername());
-            cacheEvict("users", "exists_username_" + savedUser.getUsername());
-            cacheEvict("users", savedUser.getUsername());
-
             userDetailsService.handleUsernameChange(currentUsername, savedUser.getUsername(), savedUser.getId());
         }
 
@@ -223,22 +237,12 @@ public class UserService {
     }
 
     /**
-     * Helper method to manually evict cache entries
+     * Checks if a username is available
      */
-    public void cacheEvict(String cacheName, String cacheKey) {
-        if (cacheManager != null && cacheManager.getCache(cacheName) != null) {
-            Objects.requireNonNull(cacheManager.getCache(cacheName)).evict(cacheKey);
-        }
-    }
-
-    /**
-     * Get a user by username
-     */
-    public User getUserByUsername(String username) {
-        if (username == null || username.isBlank()) {
-            return null;
-        }
-        return userRepository.findByUsername(username).orElse(null);
+    @Transactional(readOnly = true)
+    public UsernameAvailabilityResponse checkUsernameAvailability(String username) {
+        boolean isAvailable = !existsByUsername(username);
+        return UsernameAvailabilityResponse.of(username, isAvailable);
     }
 
     /**
@@ -260,7 +264,7 @@ public class UserService {
         if (principal instanceof UserPrincipal userPrincipal) {
             currentUserId = userPrincipal.user().getId();
         } else if (principal instanceof UserDetails userDetails) {
-            User user = getUserByUsername(userDetails.getUsername());
+            User user = userRepository.findByUsername(userDetails.getUsername()).orElse(null);
             if (user != null) {
                 currentUserId = user.getId();
             }
@@ -270,36 +274,12 @@ public class UserService {
     }
 
     /**
-     * Checks if a username is available
-     */
-    public GenericResponse checkUsernameAvailability(String username) {
-        boolean isAvailable = !existsByUsername(username);
-
-        return GenericResponse.builder()
-                .status(200)
-                .message(isAvailable ? "Username is available" : "Username is already taken")
-                .timestamp(LocalDateTime.now())
-                .success(isAvailable)
-                .build();
-    }
-
-    /**
-     * Get user by ID for internal service communication
-     */
-    @Transactional(readOnly = true)
-    public UserResponse getUserById(UUID userId) {
-        return userRepository.findById(userId)
-                .map(DtoMapper::mapToUserResponse)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
-    }
-
-    /**
      * Get just the username by user ID
      */
     @Transactional(readOnly = true)
+    @Cacheable(value = "usernames", key = "#userId")
     public String getUsernameById(UUID userId) {
-        return userRepository.findById(userId)
-                .map(User::getUsername)
+        return userRepository.findUsernameById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
     }
 } 

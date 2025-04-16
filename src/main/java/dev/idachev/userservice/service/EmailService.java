@@ -1,16 +1,21 @@
 package dev.idachev.userservice.service;
 
+import dev.idachev.userservice.exception.EmailSendException;
 import dev.idachev.userservice.model.User;
+import dev.idachev.userservice.util.ResponseBuilder;
+import dev.idachev.userservice.web.dto.GenericResponse;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.thymeleaf.spring6.SpringTemplateEngine;
 import org.thymeleaf.context.Context;
+import org.thymeleaf.spring6.SpringTemplateEngine;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -40,7 +45,8 @@ public class EmailService {
 
     @Value("${spring.mail.username}")
     private String fromEmail;
-
+    
+    @Autowired
     public EmailService(JavaMailSender mailSender, SpringTemplateEngine templateEngine) {
         this.mailSender = mailSender;
         this.templateEngine = templateEngine;
@@ -48,8 +54,6 @@ public class EmailService {
 
     /**
      * Creates verification token for a user
-     *
-     * @return New UUID string token
      */
     public String generateVerificationToken() {
         return UUID.randomUUID().toString();
@@ -57,8 +61,6 @@ public class EmailService {
 
     /**
      * Sends verification email to user
-     *
-     * @param user User to send verification email to
      */
     public void sendVerificationEmail(User user) {
         sendVerificationEmail(user.getEmail(), user.getUsername(), user.getVerificationToken());
@@ -66,10 +68,6 @@ public class EmailService {
 
     /**
      * Sends verification email to user
-     *
-     * @param to                User's email address
-     * @param username          User's username
-     * @param verificationToken Verification token
      */
     public void sendVerificationEmail(String to, String username, String verificationToken) {
         try {
@@ -87,15 +85,12 @@ public class EmailService {
             log.info("Verification email sent successfully to: {}", to);
         } catch (Exception e) {
             log.error("Failed to send verification email to: {} - Error: {}", to, e.getMessage(), e);
-            throw new RuntimeException("Failed to send verification email", e);
+            throw new EmailSendException("Failed to send verification email", e);
         }
     }
 
     /**
      * Sends verification email asynchronously
-     *
-     * @param user User to send verification email to
-     * @return CompletableFuture for tracking completion
      */
     @Async
     public CompletableFuture<Void> sendVerificationEmailAsync(User user) {
@@ -105,63 +100,12 @@ public class EmailService {
             } catch (Exception e) {
                 String email = user != null ? user.getEmail() : "null";
                 log.error("Async verification email failed for user {}: {}", email, e.getMessage());
-                // We don't rethrow in async context to avoid unhandled exceptions
             }
         });
     }
 
     /**
-     * Helper method to send an email with HTML content
-     *
-     * @param to          Recipient email address
-     * @param subject     Email subject
-     * @param htmlContent HTML content of the email
-     * @throws MessagingException If there is an error creating or sending the email
-     */
-    private void sendEmail(String to, String subject, String htmlContent) throws MessagingException {
-        MimeMessage message = mailSender.createMimeMessage();
-        MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-
-        helper.setTo(to);
-        helper.setSubject(subject);
-        helper.setText(htmlContent, true);
-
-        mailSender.send(message);
-    }
-
-    /**
-     * Builds the verification URL with the token
-     *
-     * @param token Verification token
-     * @return Complete verification URL
-     */
-    private String buildVerificationUrl(String token) {
-        if (serviceUrl != null && serviceUrl.contains("localhost")) {
-            return String.format("http://localhost:%s/api/v1/verification/verify/%s", serverPort, token);
-        }
-
-        // For other environments, use regular formatting
-        String baseUrl = serviceUrl;
-        if (baseUrl == null || baseUrl.isEmpty()) {
-            baseUrl = "http://localhost:" + serverPort;
-        }
-
-        // Ensure no trailing slash in base URL
-        if (baseUrl.endsWith("/")) {
-            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
-        }
-
-        String url = baseUrl + "/api/v1/verification/verify/" + token;
-        log.debug("Built verification URL: {}", url);
-        return url;
-    }
-
-    /**
      * Sends contact form email to the default recipient
-     *
-     * @param fromEmail Sender's email address
-     * @param subject   Email subject
-     * @param message   Email message
      */
     public void sendContactFormEmail(String fromEmail, String subject, String message) {
         sendContactFormEmail(defaultContactRecipient, fromEmail, subject, message);
@@ -169,15 +113,9 @@ public class EmailService {
 
     /**
      * Sends contact form email to a specified recipient
-     *
-     * @param to        Recipient email address
-     * @param fromEmail Sender's email address
-     * @param subject   Email subject
-     * @param message   Email message
      */
     public void sendContactFormEmail(String to, String fromEmail, String subject, String message) {
         try {
-            // Use default recipient if none provided
             String recipient = to != null ? to : defaultContactRecipient;
 
             log.debug("Sending contact form email from {} to {}", fromEmail, recipient);
@@ -194,28 +132,72 @@ public class EmailService {
             log.info("Contact form email sent successfully from: {} to: {}", fromEmail, recipient);
         } catch (Exception e) {
             log.error("Failed to send contact form email from: {} to: {} - Error: {}", fromEmail, to, e.getMessage(), e);
-            throw new RuntimeException("Failed to send contact form email", e);
+            throw new EmailSendException("Failed to send contact form email", e);
         }
     }
 
     /**
      * Sends contact form email asynchronously
-     *
-     * @param fromEmail Sender's email address
-     * @param subject   Email subject
-     * @param message   Email message
-     * @return CompletableFuture for tracking completion
      */
     @Async
     public CompletableFuture<Void> sendContactFormEmailAsync(String fromEmail, String subject, String message) {
         return CompletableFuture.runAsync(() -> {
             try {
-                // No validation here - rely on DTO validation
                 sendContactFormEmail(fromEmail, subject, message);
             } catch (Exception e) {
                 log.error("Async contact form email failed: {}", e.getMessage(), e);
-                // We don't rethrow in async context to avoid unhandled exceptions
             }
         });
+    }
+
+    /**
+     * Process contact form submission and handle exceptions
+     */
+    public GenericResponse processContactForm(String fromEmail, String subject, String message) {
+        try {
+            sendContactFormEmailAsync(fromEmail, subject, message);
+            return ResponseBuilder.success("Thank you for your message. We'll get back to you soon!");
+        } catch (Exception e) {
+            log.error("Error processing contact form from {}: {}", fromEmail, e.getMessage(), e);
+            return ResponseBuilder.error(
+                HttpStatus.INTERNAL_SERVER_ERROR, 
+                "Failed to process your request. Please try again later."
+            );
+        }
+    }
+    
+    /**
+     * Helper method to send an email with HTML content
+     */
+    private void sendEmail(String to, String subject, String htmlContent) throws MessagingException {
+        MimeMessage message = mailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+        helper.setTo(to);
+        helper.setSubject(subject);
+        helper.setText(htmlContent, true);
+
+        mailSender.send(message);
+    }
+
+    /**
+     * Builds the verification URL with the token
+     */
+    private String buildVerificationUrl(String token) {
+        if (serviceUrl != null && serviceUrl.contains("localhost")) {
+            return String.format("http://localhost:%s/api/v1/verification/verify/%s", serverPort, token);
+        }
+
+        String baseUrl = serviceUrl;
+        if (baseUrl == null || baseUrl.isEmpty()) {
+            baseUrl = "http://localhost:" + serverPort;
+        }
+
+        // Ensure no trailing slash in base URL
+        if (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+
+        return baseUrl + "/api/v1/verification/verify/" + token;
     }
 } 

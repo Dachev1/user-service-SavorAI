@@ -8,7 +8,12 @@ import java.util.UUID;
 
 
 @Entity
-@Table
+@Table(name = "users", 
+    indexes = {
+        @Index(name = "idx_user_username", columnList = "username"),
+        @Index(name = "idx_user_email", columnList = "email"),
+        @Index(name = "idx_user_verification_token", columnList = "verificationToken")
+    })
 @Getter
 @Setter
 @NoArgsConstructor
@@ -29,8 +34,9 @@ public class User {
     @Column(nullable = false)
     private String password;
 
-    @Column
-    private boolean enabled;
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean enabled = false;
 
     @Column
     private String verificationToken;
@@ -43,7 +49,7 @@ public class User {
     @Builder.Default
     private LocalDateTime updatedOn = LocalDateTime.now();
 
-    @Column()
+    @Column
     private LocalDateTime lastLogin;
 
     @Column
@@ -56,7 +62,8 @@ public class User {
     private Role role = Role.USER;
 
     @Column(nullable = false)
-    private boolean banned;
+    @Builder.Default
+    private boolean banned = false;
 
     @PrePersist
     protected void onCreate() {

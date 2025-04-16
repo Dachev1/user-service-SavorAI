@@ -9,14 +9,13 @@ import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
 import dev.idachev.userservice.web.dto.UserResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Service responsible for user profile operations
@@ -29,9 +28,10 @@ public class ProfileService {
     private final UserDetailsService userDetailsService;
     private final CacheManager cacheManager;
 
+    @Autowired
     public ProfileService(UserRepository userRepository,
-                          UserDetailsService userDetailsService,
-                          CacheManager cacheManager) {
+                         UserDetailsService userDetailsService,
+                         CacheManager cacheManager) {
         this.userRepository = userRepository;
         this.userDetailsService = userDetailsService;
         this.cacheManager = cacheManager;
@@ -47,7 +47,6 @@ public class ProfileService {
             throw new AuthenticationException("User not authenticated");
         }
 
-        // First call to getPrincipal()
         Object principal = authentication.getPrincipal();
         if ("anonymousUser".equals(principal)) {
             throw new AuthenticationException("User not authenticated");
@@ -57,13 +56,13 @@ public class ProfileService {
             throw new AuthenticationException("Invalid authentication principal type");
         }
 
-        // Second call to getPrincipal() - only if we didn't throw earlier
-        return ((UserPrincipal) authentication.getPrincipal()).user();
+        return ((UserPrincipal) principal).user();
     }
 
     /**
      * Gets current user information as a DTO
      */
+    @Transactional(readOnly = true)
     public UserResponse getCurrentUserInfo() {
         User user = getCurrentUser();
         return DtoMapper.mapToUserResponse(user);
@@ -72,6 +71,7 @@ public class ProfileService {
     /**
      * Gets user information as a DTO, optionally by username or email
      */
+    @Transactional(readOnly = true)
     public UserResponse getUserInfo(String identifier) {
         if (identifier == null || identifier.isEmpty()) {
             return getCurrentUserInfo();
@@ -85,36 +85,27 @@ public class ProfileService {
      * Updates a user's profile
      */
     @Transactional
+    @CacheEvict(value = "users", allEntries = true)
     public UserResponse updateProfile(String currentUsername, ProfileUpdateRequest request) {
         User user = findByUsername(currentUsername);
         boolean usernameChanged = false;
 
-        // Handle username change if requested
-        if (request.getUsername() != null && !request.getUsername().isEmpty() && !request.getUsername().equals(currentUsername)) {
+        if (request.getUsername() != null && !request.getUsername().isEmpty() && 
+            !request.getUsername().equals(currentUsername)) {
+            
             if (userRepository.existsByUsername(request.getUsername())) {
                 throw new IllegalArgumentException("Username is already taken");
             }
+            
             log.info("Username change requested from '{}' to '{}'", currentUsername, request.getUsername());
             usernameChanged = true;
             user.setUsername(request.getUsername());
         }
 
-        // Avatar handling code removed
-
         User savedUser = userRepository.save(user);
         log.info("Profile updated successfully for user: {}", currentUsername);
 
-        // Handle cache invalidation if username changed
         if (usernameChanged) {
-            log.info("Username changed from {} to {}. Invalidating caches.", currentUsername, savedUser.getUsername());
-
-            // Invalidate all relevant caches
-            evictCacheEntries(
-                    "username_" + savedUser.getUsername(),
-                    "exists_username_" + savedUser.getUsername(),
-                    savedUser.getUsername());
-
-            // Update auth service to ensure JWT tokens reflect the new username
             userDetailsService.handleUsernameChange(currentUsername, savedUser.getUsername(), savedUser.getId());
         }
 
@@ -130,28 +121,5 @@ public class ProfileService {
                     log.warn("User not found with username: {}", username);
                     return new ResourceNotFoundException("User not found with username: " + username);
                 });
-    }
-
-    /**
-     * Check if user is authenticated
-     */
-    private boolean isAuthenticatedUser(Authentication authentication) {
-        return Optional.ofNullable(authentication)
-                .filter(Authentication::isAuthenticated)
-                .map(Authentication::getPrincipal)
-                .filter(principal -> principal instanceof UserPrincipal)
-                .isPresent();
-    }
-
-    /**
-     * Helper method to evict cache entries
-     */
-    private void evictCacheEntries(String... keys) {
-        if (cacheManager != null && cacheManager.getCache("users") != null) {
-            for (String key : keys) {
-                log.debug("Evicting cache entry: {} with key: {}", "users", key);
-                Objects.requireNonNull(cacheManager.getCache("users")).evict(key);
-            }
-        }
     }
 } 

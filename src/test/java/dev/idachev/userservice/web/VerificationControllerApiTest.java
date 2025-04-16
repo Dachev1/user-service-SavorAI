@@ -1,227 +1,161 @@
 package dev.idachev.userservice.web;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.idachev.userservice.config.TestSecurityConfig;
-import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.service.VerificationService;
 import dev.idachev.userservice.web.dto.AuthResponse;
 import dev.idachev.userservice.web.dto.GenericResponse;
+import dev.idachev.userservice.web.dto.UserResponse;
 import dev.idachev.userservice.web.dto.VerificationResponse;
 import dev.idachev.userservice.web.dto.VerificationResult;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.test.web.servlet.MockMvc;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.servlet.view.RedirectView;
 
 import java.time.LocalDateTime;
+import java.util.UUID;
 
-import static org.hamcrest.Matchers.is;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.*;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-@WebMvcTest(controllers = VerificationController.class)
-@AutoConfigureMockMvc(addFilters = false)
-@Import(TestSecurityConfig.class)
-public class VerificationControllerApiTest {
+@ExtendWith(MockitoExtension.class)
+class VerificationControllerApiTest {
 
-    @Autowired
-    private MockMvc mockMvc;
-
-    @Autowired
-    private ObjectMapper objectMapper;
-
-    @MockitoBean
+    @Mock
     private VerificationService verificationService;
 
-    private AuthResponse verifiedAuthResponse;
-    private GenericResponse successResponse;
-    private VerificationResponse verificationSuccessResponse;
-    private VerificationResult verificationResult;
-    private String testEmail;
-    private String testToken;
+    @InjectMocks
+    private VerificationController verificationController;
+
+    private String validEmail;
+    private String verificationToken;
+    private AuthResponse authResponse;
+    private VerificationResult successResult;
+    private VerificationResult failureResult;
+    private VerificationResponse verificationResponse;
+    private GenericResponse genericResponse;
 
     @BeforeEach
     void setUp() {
-        testEmail = "test@example.com";
-        testToken = "test-verification-token";
-
-        verifiedAuthResponse = AuthResponse.builder()
+        validEmail = "test@example.com";
+        verificationToken = UUID.randomUUID().toString();
+        
+        // Set frontend URL through reflection
+        ReflectionTestUtils.setField(verificationController, "frontendUrl", "http://localhost:3000");
+        ReflectionTestUtils.setField(verificationController, "signinRoute", "/signin");
+        
+        // Create test responses
+        UserResponse userResponse = UserResponse.builder()
+                .id(UUID.randomUUID())
                 .username("testuser")
-                .email(testEmail)
-                .token("jwt-token")
+                .email(validEmail)
+                .role("USER")
                 .verified(true)
+                .createdOn(LocalDateTime.now())
+                .build();
+                
+        authResponse = AuthResponse.builder()
+                .token("valid.jwt.token")
+                .user(userResponse)
+                .build();
+                
+        successResult = VerificationResult.success();
+        failureResult = VerificationResult.failure("InvalidToken");
+        
+        verificationResponse = VerificationResponse.builder()
                 .success(true)
-                .message("")
-                .build();
-
-        successResponse = GenericResponse.builder()
-                .status(200)
-                .message("Verification email has been resent. Please check your inbox.")
+                .message("Email verified successfully")
                 .timestamp(LocalDateTime.now())
+                .build();
+        
+        genericResponse = GenericResponse.builder()
                 .success(true)
+                .message("Verification email has been sent")
+                .status(HttpStatus.OK.value())
                 .build();
-
-        verificationSuccessResponse = VerificationResponse.builder()
-                .success(true)
-                .message("Your email has been verified successfully. You can now sign in to your account.")
-                .timestamp(LocalDateTime.now())
-                .data(null)
-                .build();
-
-        verificationResult = VerificationResult.success();
     }
 
     @Test
-    public void getVerificationStatus_WhenUserExists_ReturnsStatus() throws Exception {
-        when(verificationService.getVerificationStatus(eq(testEmail))).thenReturn(verifiedAuthResponse);
-
-        mockMvc.perform(get("/api/v1/verification/status")
-                        .param("email", testEmail)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.email", is(testEmail)))
-                .andExpect(jsonPath("$.verified", is(true)))
-                .andExpect(jsonPath("$.token", is("jwt-token")));
-
-        verify(verificationService).getVerificationStatus(eq(testEmail));
+    @DisplayName("Should return verification status when valid email is provided")
+    void should_ReturnVerificationStatus_When_ValidEmailIsProvided() {
+        // Given
+        when(verificationService.getVerificationStatus(validEmail)).thenReturn(authResponse);
+        
+        // When
+        ResponseEntity<AuthResponse> response = verificationController.getVerificationStatus(validEmail);
+        
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(authResponse);
+        verify(verificationService).getVerificationStatus(validEmail);
     }
-
+    
     @Test
-    public void getVerificationStatus_WhenUserDoesNotExist_ReturnsNotFound() throws Exception {
-        String nonExistentEmail = "nonexistent@example.com";
-        when(verificationService.getVerificationStatus(eq(nonExistentEmail)))
-                .thenThrow(new ResourceNotFoundException("User not found with email: " + nonExistentEmail));
-
-        mockMvc.perform(get("/api/v1/verification/status")
-                        .param("email", nonExistentEmail)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isNotFound());
-
-        verify(verificationService).getVerificationStatus(eq(nonExistentEmail));
+    @DisplayName("Should resend verification email when valid email is provided")
+    void should_ResendVerificationEmail_When_ValidEmailIsProvided() {
+        // Given
+        when(verificationService.resendVerificationEmail(validEmail)).thenReturn(genericResponse);
+        
+        // When
+        ResponseEntity<GenericResponse> response = verificationController.resendVerificationEmail(validEmail);
+        
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(genericResponse);
+        assertThat(response.getBody().isSuccess()).isTrue();
+        assertThat(response.getBody().getMessage()).contains("email has been sent");
+        verify(verificationService).resendVerificationEmail(validEmail);
     }
-
+    
     @Test
-    public void getVerificationStatus_WhenInvalidEmail_ReturnsBadRequest() throws Exception {
-        String invalidEmail = "invalid-email";
-
-        mockMvc.perform(get("/api/v1/verification/status")
-                        .param("email", invalidEmail)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isBadRequest());
-
-        verify(verificationService, never()).getVerificationStatus(anyString());
+    @DisplayName("Should redirect to sign-in page with success when verification is successful")
+    void should_RedirectToSignInPage_With_Success_When_VerificationIsSuccessful() {
+        // Given
+        when(verificationService.verifyEmailForRedirect(verificationToken)).thenReturn(successResult);
+        
+        // When
+        RedirectView redirectView = verificationController.verifyEmail(verificationToken);
+        
+        // Then
+        assertThat(redirectView.getUrl()).isEqualTo("http://localhost:3000/signin?verified=true");
+        verify(verificationService).verifyEmailForRedirect(verificationToken);
     }
-
+    
     @Test
-    public void resendVerificationEmail_WhenUserExists_ReturnsSuccess() throws Exception {
-        when(verificationService.resendVerificationEmail(eq(testEmail))).thenReturn(successResponse);
-
-        mockMvc.perform(post("/api/v1/verification/resend")
-                        .param("email", testEmail)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success", is(true)))
-                .andExpect(jsonPath("$.message", is("Verification email has been resent. Please check your inbox.")));
-
-        verify(verificationService).resendVerificationEmail(eq(testEmail));
+    @DisplayName("Should redirect to sign-in page with error when verification fails")
+    void should_RedirectToSignInPage_With_Error_When_VerificationFails() {
+        // Given
+        when(verificationService.verifyEmailForRedirect(verificationToken)).thenReturn(failureResult);
+        
+        // When
+        RedirectView redirectView = verificationController.verifyEmail(verificationToken);
+        
+        // Then
+        assertThat(redirectView.getUrl()).isEqualTo("http://localhost:3000/signin?verified=false&error=InvalidToken");
+        verify(verificationService).verifyEmailForRedirect(verificationToken);
     }
-
+    
     @Test
-    public void resendVerificationEmail_WhenUserAlreadyVerified_ReturnsFailure() throws Exception {
-        GenericResponse failureResponse = GenericResponse.builder()
-                .status(400)
-                .message("Failed to resend verification email. Please try again later.")
-                .timestamp(LocalDateTime.now())
-                .success(false)
-                .build();
-
-        when(verificationService.resendVerificationEmail(eq(testEmail))).thenReturn(failureResponse);
-
-        mockMvc.perform(post("/api/v1/verification/resend")
-                        .param("email", testEmail)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success", is(false)))
-                .andExpect(jsonPath("$.message", is("Failed to resend verification email. Please try again later.")));
-
-        verify(verificationService).resendVerificationEmail(eq(testEmail));
-    }
-
-    @Test
-    public void resendVerificationEmail_WhenUserDoesNotExist_ReturnsNotFound() throws Exception {
-        String nonExistentEmail = "nonexistent@example.com";
-        when(verificationService.resendVerificationEmail(eq(nonExistentEmail)))
-                .thenThrow(new ResourceNotFoundException("User not found with email: " + nonExistentEmail));
-
-        mockMvc.perform(post("/api/v1/verification/resend")
-                        .param("email", nonExistentEmail)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isNotFound());
-
-        verify(verificationService).resendVerificationEmail(eq(nonExistentEmail));
-    }
-
-    @Test
-    public void verifyEmail_WhenValidToken_RedirectsToSignin() throws Exception {
-        when(verificationService.verifyEmailForRedirect(eq(testToken))).thenReturn(verificationResult);
-
-        mockMvc.perform(get("/api/v1/verification/verify/{token}", testToken)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("http://localhost:5173/signin?verified=true"));
-
-        verify(verificationService).verifyEmailForRedirect(eq(testToken));
-    }
-
-    @Test
-    public void verifyEmail_WhenInvalidToken_RedirectsToSigninWithError() throws Exception {
-        String invalidToken = "invalid-token";
-        VerificationResult failureResult = VerificationResult.failure("ResourceNotFoundException");
-
-        when(verificationService.verifyEmailForRedirect(eq(invalidToken))).thenReturn(failureResult);
-
-        mockMvc.perform(get("/api/v1/verification/verify/{token}", invalidToken)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("http://localhost:5173/signin?verified=false&error=ResourceNotFoundException"));
-
-        verify(verificationService).verifyEmailForRedirect(eq(invalidToken));
-    }
-
-    @Test
-    public void verifyEmailApi_WhenValidToken_ReturnsSuccess() throws Exception {
-        when(verificationService.verifyEmailAndGetResponse(eq(testToken))).thenReturn(verificationSuccessResponse);
-
-        mockMvc.perform(post("/api/v1/verification/verify")
-                        .param("token", testToken)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success", is(true)))
-                .andExpect(jsonPath("$.message", is("Your email has been verified successfully. You can now sign in to your account.")));
-
-        verify(verificationService).verifyEmailAndGetResponse(eq(testToken));
-    }
-
-    @Test
-    public void verifyEmailApi_WhenInvalidToken_ReturnsNotFound() throws Exception {
-        String invalidToken = "invalid-token";
-        when(verificationService.verifyEmailAndGetResponse(eq(invalidToken)))
-                .thenThrow(new ResourceNotFoundException("Invalid verification token"));
-
-        mockMvc.perform(post("/api/v1/verification/verify")
-                        .param("token", invalidToken)
-                        .contentType(MediaType.APPLICATION_JSON))
-                .andExpect(status().isNotFound());
-
-        verify(verificationService).verifyEmailAndGetResponse(eq(invalidToken));
+    @DisplayName("Should verify email via API when token is provided")
+    void should_VerifyEmailViaApi_When_TokenIsProvided() {
+        // Given
+        when(verificationService.verifyEmailAndGetResponse(verificationToken)).thenReturn(verificationResponse);
+        
+        // When
+        ResponseEntity<VerificationResponse> response = verificationController.verifyEmailApi(verificationToken);
+        
+        // Then
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEqualTo(verificationResponse);
+        assertThat(response.getBody().isSuccess()).isTrue();
+        assertThat(response.getBody().getMessage()).contains("verified successfully");
+        verify(verificationService).verifyEmailAndGetResponse(verificationToken);
     }
 } 

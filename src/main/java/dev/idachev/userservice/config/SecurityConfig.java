@@ -2,10 +2,10 @@ package dev.idachev.userservice.config;
 
 import dev.idachev.userservice.security.JwtAuthenticationFilter;
 import dev.idachev.userservice.service.UserDetailsService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -32,33 +32,12 @@ import java.util.List;
 public class SecurityConfig {
 
     private static final String[] PUBLIC_ENDPOINTS = {
-            // Authentication endpoints
-            "/api/v1/auth/signin",
-            "/api/v1/auth/signup",
-            "/api/v1/auth/logout",
-            "/api/v1/auth/refresh-token",
-            "/api/v1/auth/check-status",
-
-            // Verification endpoints
-            "/api/v1/verification/status",
-            "/api/v1/verification/resend",
-            "/api/v1/verification/verify/**",
-            
-            // Profile endpoints that don't need authentication
-            "/api/v1/profile",
-            "/api/v1/profile/**",
-            "/api/v1/user/check-username",
-            "/api/v1/users/*/username",
-
-            // Contact form endpoint
+            "/api/v1/auth/signin", "/api/v1/auth/signup", "/api/v1/auth/logout", 
+            "/api/v1/auth/refresh-token", "/api/v1/auth/check-status",
+            "/api/v1/verification/status", "/api/v1/verification/resend", "/api/v1/verification/verify/**",
+            "/api/v1/profile", "/api/v1/profile/**", "/api/v1/user/check-username", "/api/v1/users/*/username",
             "/api/v1/contact/submit",
-
-            // Swagger UI and API docs
-            "/swagger-ui/**",
-            "/api-docs/**",
-            "/v3/api-docs/**",
-
-            // Static resources
+            "/swagger-ui/**", "/api-docs/**", "/v3/api-docs/**",
             "/css/**", "/js/**", "/images/**"
     };
 
@@ -72,7 +51,6 @@ public class SecurityConfig {
     @Value("${cors.allowed-origins:*}")
     private String allowedOrigins;
 
-    @Autowired
     public SecurityConfig(JwtAuthenticationFilter jwtAuthFilter, UserDetailsService userDetailsService) {
         this.jwtAuthFilter = jwtAuthFilter;
         this.userDetailsService = userDetailsService;
@@ -85,7 +63,8 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
-                        .requestMatchers(ADMIN_ENDPOINTS).hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+                        .requestMatchers(ADMIN_ENDPOINTS).hasAuthority("ROLE_ADMIN")
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -97,16 +76,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of(allowedOrigins));
-        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedOrigins(List.of(allowedOrigins.split(",")));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList(
-                "Authorization",
-                "Content-Type",
-                "X-Requested-With",
-                "X-Request-ID",
-                "X-Priority",
-                "Cache-Control",
-                "Origin"
+                "Authorization", "Content-Type", "X-Requested-With", 
+                "X-Request-ID", "X-Priority", "Cache-Control", "Origin"
         ));
         configuration.setExposedHeaders(Arrays.asList("X-Request-ID", "Authorization"));
         configuration.setAllowCredentials(true);
@@ -132,6 +106,6 @@ public class SecurityConfig {
 
     @Bean
     public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
+        return new BCryptPasswordEncoder(12);
     }
 } 

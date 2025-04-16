@@ -1,20 +1,21 @@
 package dev.idachev.userservice.web;
 
-import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.service.AuthenticationService;
 import dev.idachev.userservice.service.ProfileService;
-import dev.idachev.userservice.service.TokenService;
 import dev.idachev.userservice.service.UserService;
+import dev.idachev.userservice.web.dto.BanStatusResponse;
 import dev.idachev.userservice.web.dto.GenericResponse;
 import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
+import dev.idachev.userservice.web.dto.RoleUpdateResponse;
 import dev.idachev.userservice.web.dto.UserResponse;
+import dev.idachev.userservice.web.dto.UsernameAvailabilityResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -22,7 +23,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,18 +33,25 @@ import java.util.UUID;
 @RequestMapping("/api/v1")
 @Tag(name = "User Management")
 @Validated
-@RequiredArgsConstructor
 @Slf4j
 public class UserController {
 
     private final UserService userService;
-    private final TokenService tokenService;
     private final AuthenticationService authenticationService;
     private final ProfileService profileService;
 
+    @Autowired
+    public UserController(UserService userService,
+                         AuthenticationService authenticationService, 
+                         ProfileService profileService) {
+        this.userService = userService;
+        this.authenticationService = authenticationService;
+        this.profileService = profileService;
+    }
+
     @GetMapping("/user/check-username")
     @Operation(summary = "Check username availability")
-    public ResponseEntity<GenericResponse> checkUsernameAvailability(@RequestParam String username) {
+    public ResponseEntity<UsernameAvailabilityResponse> checkUsernameAvailability(@RequestParam String username) {
         return ResponseEntity.ok(userService.checkUsernameAvailability(username));
     }
     
@@ -64,12 +71,10 @@ public class UserController {
             @Valid @RequestBody ProfileUpdateRequest request,
             @AuthenticationPrincipal UserDetails userDetails) {
         log.debug("Received updateUsername request: {}", request.getUsername());
-        
         GenericResponse response = authenticationService.changeUsername(
             userDetails.getUsername(),
             request.getUsername(),
             request.getCurrentPassword());
-            
         log.info("Username change processed: from '{}' to '{}'", 
                 userDetails.getUsername(), request.getUsername());
         return ResponseEntity.ok(response);
@@ -95,21 +100,10 @@ public class UserController {
         description = "Changes a user's role in the system", 
         security = @SecurityRequirement(name = "bearerAuth")
     )
-    public ResponseEntity<GenericResponse> updateUserRole(
+    public ResponseEntity<RoleUpdateResponse> updateUserRole(
             @PathVariable UUID userId,
             @RequestParam Role role) {
-        if (userService.isCurrentUser(userId)) {
-            return ResponseEntity.badRequest().body(
-                GenericResponse.builder()
-                    .status(400)
-                    .message("Admins cannot change their own role")
-                    .timestamp(LocalDateTime.now())
-                    .success(false)
-                    .build()
-            );
-        }
-        
-        return ResponseEntity.ok(userService.updateUserRoleWithTokenRefresh(userId, role));
+        return ResponseEntity.ok(userService.updateUserRole(userId, role));
     }
 
     @PutMapping("/admin/users/{userId}/ban")
@@ -119,25 +113,8 @@ public class UserController {
         description = "Toggles a user's ban status (banned/unbanned)", 
         security = @SecurityRequirement(name = "bearerAuth")
     )
-    public ResponseEntity<GenericResponse> toggleUserBan(@PathVariable UUID userId) {
-        if (userService.isCurrentUser(userId)) {
-            return ResponseEntity.badRequest().body(
-                GenericResponse.builder()
-                    .status(400)
-                    .message("Admins cannot ban themselves")
-                    .timestamp(LocalDateTime.now())
-                    .success(false)
-                    .build()
-            );
-        }
-        
-        GenericResponse response = userService.toggleUserBan(userId);
-        
-        if (response.isSuccess() && response.getMessage().contains("banned")) {
-            tokenService.invalidateUserTokens(userId);
-        }
-        
-        return ResponseEntity.ok(response);
+    public ResponseEntity<BanStatusResponse> toggleUserBan(@PathVariable UUID userId) {
+        return ResponseEntity.ok(userService.toggleUserBan(userId));
     }
 
     @GetMapping("/users/{id}")
@@ -146,12 +123,7 @@ public class UserController {
         description = "Retrieves basic user information by ID for internal service communication"
     )
     public ResponseEntity<UserResponse> getUserById(@PathVariable UUID id) {
-        try {
-            return ResponseEntity.ok(userService.getUserById(id));
-        } catch (Exception e) {
-            log.warn("Error retrieving user by ID {}: {}", id, e.getMessage());
-            throw e;
-        }
+        return ResponseEntity.ok(userService.getUserById(id));
     }
 
     @GetMapping("/users/{id}/username")
@@ -160,11 +132,6 @@ public class UserController {
         description = "Lightweight endpoint to retrieve just the username for a given user ID"
     )
     public ResponseEntity<String> getUsernameById(@PathVariable UUID id) {
-        try {
-            return ResponseEntity.ok(userService.getUsernameById(id));
-        } catch (Exception e) {
-            log.warn("Error retrieving username for ID {}: {}", id, e.getMessage());
-            throw e;
-        }
+        return ResponseEntity.ok(userService.getUsernameById(id));
     }
 }
