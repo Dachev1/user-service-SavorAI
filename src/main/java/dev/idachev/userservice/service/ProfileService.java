@@ -1,125 +1,122 @@
 package dev.idachev.userservice.service;
 
-import dev.idachev.userservice.exception.AuthenticationException;
+import java.util.Objects;
+import java.util.UUID;
+
+import org.springframework.cache.CacheManager;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import dev.idachev.userservice.exception.InvalidRequestException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.mapper.DtoMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
-import dev.idachev.userservice.security.UserPrincipal;
-import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
+import dev.idachev.userservice.web.dto.PasswordChangeRequest;
 import dev.idachev.userservice.web.dto.UserResponse;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cache.CacheManager;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Service responsible for user profile operations
+ * Service responsible for user profile operations (viewing, password change,
+ * deletion).
+ * Username/profile updates are handled by UserService.
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class ProfileService {
-    
+
     private final UserRepository userRepository;
-    private final UserDetailsService userDetailsService;
+    private final PasswordEncoder passwordEncoder;
     private final CacheManager cacheManager;
 
-    @Autowired
-    public ProfileService(UserRepository userRepository,
-                         UserDetailsService userDetailsService,
-                         CacheManager cacheManager) {
-        this.userRepository = userRepository;
-        this.userDetailsService = userDetailsService;
-        this.cacheManager = cacheManager;
-    }
-
     /**
-     * Gets the currently authenticated user
-     */
-    public User getCurrentUser() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-
-        if (authentication == null || !authentication.isAuthenticated()) {
-            throw new AuthenticationException("User not authenticated");
-        }
-
-        Object principal = authentication.getPrincipal();
-        if ("anonymousUser".equals(principal)) {
-            throw new AuthenticationException("User not authenticated");
-        }
-
-        if (!(principal instanceof UserPrincipal)) {
-            throw new AuthenticationException("Invalid authentication principal type");
-        }
-
-        return ((UserPrincipal) principal).user();
-    }
-
-    /**
-     * Gets current user information as a DTO
+     * Gets user information as a DTO by username.
+     * Parameter 'username' is expected to be provided by the controller (e.g., from
+     * path or principal).
      */
     @Transactional(readOnly = true)
-    public UserResponse getCurrentUserInfo() {
-        User user = getCurrentUser();
-        return DtoMapper.mapToUserResponse(user);
-    }
-
-    /**
-     * Gets user information as a DTO, optionally by username or email
-     */
-    @Transactional(readOnly = true)
-    public UserResponse getUserInfo(String identifier) {
-        if (identifier == null || identifier.isEmpty()) {
-            return getCurrentUserInfo();
+    @Cacheable(value = "users", key = "'username_' + #username", unless = "#result == null")
+    public UserResponse getUserInfoByUsername(String username) {
+        if (username == null || username.isBlank()) {
+            throw new InvalidRequestException("Username cannot be blank");
         }
-
-        User user = findByUsername(identifier);
-        return DtoMapper.mapToUserResponse(user);
+        return DtoMapper.mapToUserResponse(findByUsername(username));
     }
 
     /**
-     * Updates a user's profile
+     * Deletes the user account identified by username.
+     * Requires username passed from controller (e.g., authenticated principal).
      */
     @Transactional
-    @CacheEvict(value = "users", allEntries = true)
-    public UserResponse updateProfile(String currentUsername, ProfileUpdateRequest request) {
-        User user = findByUsername(currentUsername);
-        boolean usernameChanged = false;
+    public void deleteAccount(String username) {
+        User user = findByUsername(username);
+        UUID userId = user.getId();
+        String email = user.getEmail();
 
-        if (request.getUsername() != null && !request.getUsername().isEmpty() && 
-            !request.getUsername().equals(currentUsername)) {
-            
-            if (userRepository.existsByUsername(request.getUsername())) {
-                throw new IllegalArgumentException("Username is already taken");
-            }
-            
-            log.info("Username change requested from '{}' to '{}'", currentUsername, request.getUsername());
-            usernameChanged = true;
-            user.setUsername(request.getUsername());
-        }
+        userRepository.delete(user);
+        log.info("User account deleted: {}", username);
 
-        User savedUser = userRepository.save(user);
-        log.info("Profile updated successfully for user: {}", currentUsername);
-
-        if (usernameChanged) {
-            userDetailsService.handleUsernameChange(currentUsername, savedUser.getUsername(), savedUser.getId());
-        }
-
-        return DtoMapper.mapToUserResponse(savedUser);
+        evictUserCaches(userId, username, email);
     }
 
     /**
-     * Find user by username
+     * Changes the user's password.
+     * Requires username passed from controller (e.g., authenticated principal).
+     * TODO: Consider class-level validator for request DTO (passwords match).
+     */
+    @Transactional
+    public void changePassword(String username, PasswordChangeRequest request) {
+        User user = findByUsername(username);
+
+        Objects.requireNonNull(request.getCurrentPassword(), "Current password cannot be null");
+        Objects.requireNonNull(request.getNewPassword(), "New password cannot be null");
+        Objects.requireNonNull(request.getConfirmPassword(), "Confirm password cannot be null");
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new InvalidRequestException("Current password is incorrect");
+        }
+
+        if (!request.getNewPassword().equals(request.getConfirmPassword())) {
+            throw new InvalidRequestException("New password and confirmation do not match");
+        }
+
+        user.changePassword(passwordEncoder.encode(request.getNewPassword()));
+        User savedUser = userRepository.save(user);
+        log.info("Password changed for user: {}", username);
+
+        evictUserCaches(savedUser.getId(), savedUser.getUsername(), savedUser.getEmail());
+    }
+
+    /**
+     * Finds a user entity by username.
+     * Throws ResourceNotFoundException if not found.
      */
     private User findByUsername(String username) {
         return userRepository.findByUsername(username)
-                .orElseThrow(() -> {
-                    log.warn("User not found with username: {}", username);
-                    return new ResourceNotFoundException("User not found with username: " + username);
-                });
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + username));
     }
-} 
+
+    /**
+     * Helper method to evict common user-related cache entries.
+     */
+    private void evictUserCaches(UUID userId, String username, String email) {
+        var usersCache = cacheManager.getCache("users");
+        if (usersCache != null) {
+            if (userId != null)
+                usersCache.evict(userId);
+            if (username != null)
+                usersCache.evict("'username_'" + username);
+            if (email != null)
+                usersCache.evict("'email_'" + email);
+            usersCache.evict("'allUsers'");
+        }
+        var usernamesCache = cacheManager.getCache("usernames");
+        if (usernamesCache != null && userId != null) {
+            usernamesCache.evict(userId);
+        }
+    }
+}

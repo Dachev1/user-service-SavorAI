@@ -1,6 +1,8 @@
 package dev.idachev.userservice.web;
 
+import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.service.AuthenticationService;
+import dev.idachev.userservice.util.ResponseBuilder;
 import dev.idachev.userservice.web.dto.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -11,15 +13,13 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.Map;
 
 /**
  * Controller for authentication operations
@@ -28,14 +28,11 @@ import java.util.Map;
 @RestController
 @RequestMapping(path = "/api/v1/auth", produces = MediaType.APPLICATION_JSON_VALUE)
 @Tag(name = "Authentication", description = "Endpoints for user authentication")
+@RequiredArgsConstructor
 public class AuthController {
 
     private final AuthenticationService authService;
     
-    public AuthController(AuthenticationService authService) {
-        this.authService = authService;
-    }
-
     @PostMapping(path = "/signup", consumes = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Sign up new user", description = "Creates a new user account and sends verification email")
     @ApiResponses(value = {
@@ -45,7 +42,7 @@ public class AuthController {
             @ApiResponse(responseCode = "409", description = "Username or email already exists")
     })
     public ResponseEntity<AuthResponse> signup(@Valid @RequestBody RegisterRequest request) {
-        log.debug("Signup request received for email: {}", request.getEmail());
+        log.debug("Signup request received for email: {}", request.email());
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(authService.register(request));
     }
@@ -59,7 +56,7 @@ public class AuthController {
             @ApiResponse(responseCode = "401", description = "Invalid credentials")
     })
     public ResponseEntity<AuthResponse> signin(@Valid @RequestBody SignInRequest request) {
-        log.debug("Sign in request received for user: {}", request.getIdentifier());
+        log.debug("Sign in request received for user: {}", request.identifier());
         return ResponseEntity.ok(authService.signIn(request));
     }
 
@@ -77,46 +74,59 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
-    @Operation(summary = "Log out the current user", description = "Logs out the currently authenticated user, invalidating their session token and updating their status")
+    @Operation(summary = "Log out the current user", description = "Invalidates the current user's session token.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "User successfully logged out",
                     content = @Content(schema = @Schema(implementation = GenericResponse.class))),
-            @ApiResponse(responseCode = "401", description = "Unauthorized - invalid credentials")
+            @ApiResponse(responseCode = "401", description = "Unauthorized or invalid token")
     })
+    @SecurityRequirement(name = "bearerAuth")
     public ResponseEntity<GenericResponse> logout(
-            @RequestHeader(value = "Authorization", required = false) String authHeader) {
+            @RequestHeader(value = "Authorization") String authHeader) {
         log.debug("Logout request received");
-        return ResponseEntity.ok(authService.logout(authHeader));
+        authService.logout(authHeader);
+        return ResponseEntity.ok(ResponseBuilder.success("Successfully logged out"));
     }
 
     @PostMapping(path = "/change-username", consumes = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "Change username", description = "Changes the username for an authenticated user", 
-               security = @SecurityRequirement(name = "bearerAuth"))
+    @Operation(summary = "Change username", description = "Changes the username for the currently authenticated user. Requires current password.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Username changed successfully",
                     content = @Content(schema = @Schema(implementation = GenericResponse.class))),
-            @ApiResponse(responseCode = "400", description = "Invalid username format"),
-            @ApiResponse(responseCode = "401", description = "Password incorrect or unauthorized"),
-            @ApiResponse(responseCode = "409", description = "Username already taken")
+            @ApiResponse(responseCode = "400", description = "Invalid input (e.g., format, missing fields)"),
+            @ApiResponse(responseCode = "401", description = "Current password incorrect or unauthorized"),
+            @ApiResponse(responseCode = "404", description = "Authenticated user not found (should not happen)"),
+            @ApiResponse(responseCode = "409", description = "New username is already taken")
     })
+    @SecurityRequirement(name = "bearerAuth")
     public ResponseEntity<GenericResponse> changeUsername(
             @Valid @RequestBody ProfileUpdateRequest request,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        log.debug("Username change request received from: {}", userDetails.getUsername());
-        return ResponseEntity.ok(authService.changeUsername(
-                userDetails.getUsername(),
+            @AuthenticationPrincipal UserPrincipal principal) {
+        
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        String currentUsername = principal.getUsername();
+        log.debug("Username change request received from: {}", currentUsername);
+        
+        authService.changeUsername(
+                currentUsername,
                 request.getUsername(),
-                request.getCurrentPassword()));
+                request.getCurrentPassword()
+        );
+        return ResponseEntity.ok(ResponseBuilder.success("Username updated successfully"));
     }
 
     @GetMapping("/check-status")
-    @Operation(summary = "Check user status", description = "Checks if a user is banned by their username or email")
+    @Operation(summary = "Check user status", description = "Checks if a user is enabled and not banned, by username or email.")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "User status check successful"),
-            @ApiResponse(responseCode = "404", description = "User not found")
+            @ApiResponse(responseCode = "200", description = "User status retrieved successfully",
+                    content = @Content(schema = @Schema(implementation = UserStatusResponse.class))),
+            @ApiResponse(responseCode = "404", description = "User not found with the given identifier")
     })
-    public ResponseEntity<Map<String, Object>> checkUserStatus(@RequestParam String identifier) {
+    public ResponseEntity<UserStatusResponse> checkUserStatus(@RequestParam String identifier) {
         log.debug("User status check received for: {}", identifier);
-        return ResponseEntity.ok(authService.checkUserBanStatus(identifier));
+        UserStatusResponse status = authService.checkUserStatus(identifier);
+        return ResponseEntity.ok(status);
     }
 }

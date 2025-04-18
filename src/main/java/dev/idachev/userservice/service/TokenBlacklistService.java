@@ -1,175 +1,139 @@
 package dev.idachev.userservice.service;
 
-import jakarta.annotation.PreDestroy;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.time.Duration;
 
 /**
- * Service for managing blacklisted JWT tokens
+ * Service for managing blacklisted JWT tokens and user invalidations using Redis.
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class TokenBlacklistService {
 
-    private final ConcurrentHashMap<String, LocalDateTime> blacklistedTokens = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, Long> userBlacklists = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService cleanupExecutor = Executors.newSingleThreadScheduledExecutor();
-    private final java.security.Key signingKey;
-    private volatile boolean isShutdown = false;
+    // Prefix for keys storing invalidated user tokens
+    private static final String USER_INVALIDATION_KEY_PREFIX = "invalidated_user::";
+    // Prefix for keys storing blacklisted JWTs
+    private static final String JWT_BLACKLIST_KEY_PREFIX = "jwt_blacklist::";
+    // Default duration for user invalidation marker (e.g., 30 days) - consider making configurable
+    private static final Duration USER_INVALIDATION_DURATION = Duration.ofDays(30);
+    // Fallback blacklist duration if JWT expiry calculation fails
+    private static final Duration FALLBACK_BLACKLIST_DURATION = Duration.ofHours(1);
 
-    // Default expiration time is 24 hours
-    @Value("${jwt.expiration:86400000}")
-    private long jwtExpiration;
-    
-    // How often to clean up expired tokens (default: 1 hour)
-    private final long cleanupInterval;
-
-    @Autowired
-    public TokenBlacklistService(@Value("${jwt.blacklist.cleanup-interval:3600}") long cleanupInterval,
-                                @Value("${jwt.secret}") String jwtSecret) {
-        this.cleanupInterval = cleanupInterval;
-
-        // Create key once during initialization
-        this.signingKey = io.jsonwebtoken.security.Keys.hmacShaKeyFor(
-                jwtSecret.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-
-        // Schedule cleanup task to run at 1/4 of the token expiration time or at least every minute
-        long cleanupIntervalSeconds = Math.max(jwtExpiration / (4 * 1000), 60);
-
-        cleanupExecutor.scheduleAtFixedRate(
-                this::cleanExpiredTokens,
-                cleanupIntervalSeconds,
-                cleanupIntervalSeconds,
-                TimeUnit.SECONDS);
-
-        log.info("Token blacklist service initialized with cleanup interval of {} seconds",
-                cleanupIntervalSeconds);
-    }
-
-    @PreDestroy
-    public void shutdown() {
-        try {
-            log.info("Shutting down token blacklist service");
-            isShutdown = true;
-            cleanupExecutor.shutdownNow();
-            if (!cleanupExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                log.warn("Token blacklist cleanup task did not terminate in time");
-            }
-        } catch (InterruptedException e) {
-            cleanupExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-            log.warn("Interrupted while shutting down token blacklist service", e);
-        }
-    }
+    private final StringRedisTemplate redisTemplate;
+    // private final JwtConfig jwtConfig; // Inject if default JWT expiration needed as fallback
 
     /**
-     * Blacklists a token with expiry time
+     * Blacklists a specific JWT until its natural expiry time.
+     *
+     * @param jwt                   The raw JWT string to blacklist.
+     * @param expiryTimestampMillis The original expiry timestamp of the JWT in milliseconds since epoch.
      */
-    public void blacklistToken(String token, long expiryTimestamp) {
-        if (token == null) {
-            log.warn("Attempted to blacklist null token");
-            return;
+    public void blacklistJwt(String jwt, long expiryTimestampMillis) {
+        if (jwt == null || jwt.isBlank()) {
+            log.warn("Attempted to blacklist null or blank JWT");
+            return; // Or throw IllegalArgumentException
         }
-        
-        if (token.startsWith("user_tokens_invalidated:")) {
-            userBlacklists.put(token, expiryTimestamp);
-            log.info("Added user token invalidation: {}", token);
+
+        long ttlMillis = expiryTimestampMillis - System.currentTimeMillis();
+        Duration duration;
+
+        if (ttlMillis > 0) {
+            duration = Duration.ofMillis(ttlMillis);
+            // Add a small buffer to account for clock skew or processing time? Optional.
         } else {
-            LocalDateTime expiryDateTime;
-            
-            // Special case for zero expiry - default to 24 hours in the future
-            if (expiryTimestamp == 0L) {
-                expiryDateTime = LocalDateTime.now().plusHours(24);
-                log.info("Token with zero expiry blacklisted until {}", expiryDateTime);
-            } else {
-                try {
-                    // Convert milliseconds timestamp to LocalDateTime
-                    expiryDateTime = LocalDateTime.now().plusSeconds((expiryTimestamp - System.currentTimeMillis()) / 1000);
-                    log.info("Token blacklisted until {}", expiryDateTime);
-                } catch (Exception e) {
-                    // Fallback to 1 hour from now if conversion fails
-                    log.warn("Error processing timestamp {}, using fallback expiry", expiryTimestamp);
-                    expiryDateTime = LocalDateTime.now().plusHours(1);
-                }
-            }
-            
-            blacklistedTokens.put(token, expiryDateTime);
+            // Token already expired or expiry is invalid, blacklist for a short fallback duration
+            log.warn("JWT expiry timestamp {} is in the past or invalid. Blacklisting for fallback duration: {}",
+                    expiryTimestampMillis, FALLBACK_BLACKLIST_DURATION);
+            duration = FALLBACK_BLACKLIST_DURATION;
+        }
+
+        // Ensure duration is not excessively long (sanity check, optional)
+        // Duration maxDuration = Duration.ofDays(someConfiguredMaxDays); 
+        // if (duration.compareTo(maxDuration) > 0) { duration = maxDuration; } 
+
+        try {
+            String key = JWT_BLACKLIST_KEY_PREFIX + jwt;
+            // Set a value (can be empty string or "1") with the calculated TTL
+            redisTemplate.opsForValue().set(key, "blacklisted", duration);
+            log.debug("JWT blacklisted with TTL {}: {}", duration, key);
+        } catch (Exception e) {
+            log.error("Failed to blacklist JWT in Redis: {}", e.getMessage(), e);
+            // Decide if exception should be propagated
+            // throw new RuntimeException("Failed to blacklist token", e);
         }
     }
 
     /**
-     * Checks if a token is blacklisted
+     * Checks if a specific JWT is present in the blacklist (i.e., has an entry in Redis).
+     *
+     * @param jwt The raw JWT string to check.
+     * @return true if the JWT is blacklisted, false otherwise.
      */
-    public boolean isBlacklisted(String token) {
-        if (token == null) {
+    public boolean isJwtBlacklisted(String jwt) {
+        if (jwt == null || jwt.isBlank()) {
+            return false; // Cannot be blacklisted
+        }
+        try {
+            String key = JWT_BLACKLIST_KEY_PREFIX + jwt;
+            Boolean hasKey = redisTemplate.hasKey(key);
+            return Boolean.TRUE.equals(hasKey);
+        } catch (Exception e) {
+            log.error("Failed to check JWT blacklist status in Redis: {}", e.getMessage(), e);
+            // Fail safe? Assume blacklisted on error?
+            // Or return false and rely on standard expiry? Returning false seems safer.
             return false;
         }
-
-        if (token.startsWith("user_tokens_invalidated:")) {
-            // For user blacklists, just check if the token exists in the map
-            return userBlacklists.containsKey(token);
-        }
-
-        // For regular tokens, just check if the token exists in the map
-        // The expiry check is handled during cleanup
-        return blacklistedTokens.containsKey(token);
     }
 
     /**
-     * Clean up expired tokens
+     * Invalidates all tokens for a specific user by adding a marker in Redis.
+     *
+     * @param userId The ID of the user whose tokens should be invalidated.
      */
-    private void cleanExpiredTokens() {
-        if (isShutdown) {
-            return;
-        }
-        
-        LocalDateTime now = LocalDateTime.now();
-        int removedCount = 0;
-
-        // Clean up expired tokens
-        for (String token : blacklistedTokens.keySet()) {
-            LocalDateTime expiry = blacklistedTokens.get(token);
-            if (expiry != null && (now.isAfter(expiry) || now.isEqual(expiry))) {
-                blacklistedTokens.remove(token);
-                removedCount++;
-            }
+    public void invalidateUserTokens(String userId) {
+        if (userId == null || userId.isBlank()) {
+            log.warn("Attempted to invalidate tokens for null or blank user ID");
+            return; // Or throw IllegalArgumentException
         }
 
-        // Clean up expired user blacklists
-        long currentTime = System.currentTimeMillis();
-        int removedUserBlacklists = 0;
-        
-        for (String key : userBlacklists.keySet()) {
-            Long expiry = userBlacklists.get(key);
-            if (expiry != null && currentTime > expiry) {
-                userBlacklists.remove(key);
-                removedUserBlacklists++;
-            }
-        }
-
-        if (removedCount > 0 || removedUserBlacklists > 0) {
-            log.info("Cleaned up {} expired tokens and {} user blacklists", 
-                    removedCount, removedUserBlacklists);
+        try {
+            String key = USER_INVALIDATION_KEY_PREFIX + userId;
+            redisTemplate.opsForValue().set(key, "invalidated", USER_INVALIDATION_DURATION);
+            log.debug("User token invalidation marker set for user {} with TTL {}", userId, USER_INVALIDATION_DURATION);
+        } catch (Exception e) {
+            log.error("Failed to set user token invalidation marker in Redis for user {}: {}", userId, e.getMessage(), e);
+            // Decide if exception should be propagated
+            // throw new RuntimeException("Failed to invalidate user tokens", e);
         }
     }
 
     /**
-     * Force cleanup of expired tokens immediately - used for testing
+     * Checks if a user's tokens have been globally invalidated via a marker in Redis.
+     *
+     * @param userId The ID of the user to check.
+     * @return true if the user's tokens are marked as invalidated, false otherwise.
      */
-    public void forceCleanupExpiredTokens() {
-        if (!isShutdown) {
-            cleanExpiredTokens();
-        } else {
-            log.info("Skipping cleanup as service is shut down");
+    public boolean isUserInvalidated(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return false;
+        }
+        try {
+            String key = USER_INVALIDATION_KEY_PREFIX + userId;
+            Boolean hasKey = redisTemplate.hasKey(key);
+            return Boolean.TRUE.equals(hasKey);
+        } catch (Exception e) {
+            log.error("Failed to check user token invalidation status in Redis for user {}: {}", userId, e.getMessage(), e);
+            // Fail safe? Assume invalidated on error?
+            // Returning false seems safer, relying on JWT expiry/blacklist.
+            return false;
         }
     }
 
+    // Cleanup executor, maps, PreDestroy logic, etc. removed
+    // forceCleanupExpiredTokens removed
 } 

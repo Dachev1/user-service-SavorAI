@@ -1,11 +1,13 @@
 package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.exception.AuthenticationException;
+import dev.idachev.userservice.exception.InvalidRequestException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
+import dev.idachev.userservice.web.dto.PasswordChangeRequest;
 import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
 import dev.idachev.userservice.web.dto.UserResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,10 +18,10 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.cache.CacheManager;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
 import java.util.Optional;
@@ -28,6 +30,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
@@ -40,7 +43,7 @@ class ProfileServiceUTest {
     private UserDetailsService userDetailsService;
 
     @Mock
-    private CacheManager cacheManager;
+    private PasswordEncoder passwordEncoder;
 
     @Mock
     private SecurityContext securityContext;
@@ -58,7 +61,7 @@ class ProfileServiceUTest {
 
     @BeforeEach
     void setUp() {
-        profileService = new ProfileService(userRepository, userDetailsService, cacheManager);
+        profileService = new ProfileService(userRepository, userDetailsService, passwordEncoder);
 
         userId = UUID.randomUUID();
         testUser = User.builder()
@@ -198,5 +201,108 @@ class ProfileServiceUTest {
         assertThatThrownBy(() -> profileService.updateProfile(currentUsername, request))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Username is already taken");
+    }
+
+    @Test
+    @DisplayName("Should delete user account when user exists")
+    void should_DeleteAccount_When_UserExists() {
+        // Given
+        String username = "testuser";
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
+        
+        // When
+        profileService.deleteAccount(username);
+        
+        // Then
+        verify(userRepository).delete(testUser);
+    }
+    
+    @Test
+    @DisplayName("Should throw ResourceNotFoundException when deleting non-existent user")
+    void should_ThrowResourceNotFoundException_When_DeletingNonExistentUser() {
+        // Given
+        String nonExistingUsername = "nonexistinguser";
+        when(userRepository.findByUsername(nonExistingUsername)).thenReturn(Optional.empty());
+        
+        // When/Then
+        assertThatThrownBy(() -> profileService.deleteAccount(nonExistingUsername))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("User not found");
+    }
+    
+    @Test
+    @DisplayName("Should change password when valid request is provided")
+    void should_ChangePassword_When_ValidRequestIsProvided() {
+        // Given
+        String username = "testuser";
+        String currentPassword = "password123";
+        String newPassword = "newPassword123";
+        String encodedNewPassword = "encodedNewPassword123";
+        
+        PasswordChangeRequest request = PasswordChangeRequest.builder()
+                .currentPassword(currentPassword)
+                .newPassword(newPassword)
+                .confirmPassword(newPassword)
+                .build();
+        
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches(currentPassword, testUser.getPassword())).thenReturn(true);
+        when(passwordEncoder.encode(newPassword)).thenReturn(encodedNewPassword);
+        
+        // When
+        profileService.changePassword(username, request);
+        
+        // Then
+        verify(userRepository).save(userCaptor.capture());
+        User savedUser = userCaptor.getValue();
+        
+        assertThat(savedUser.getPassword()).isEqualTo(encodedNewPassword);
+    }
+    
+    @Test
+    @DisplayName("Should throw InvalidRequestException when current password is incorrect")
+    void should_ThrowInvalidRequestException_When_CurrentPasswordIsIncorrect() {
+        // Given
+        String username = "testuser";
+        String wrongCurrentPassword = "wrongPassword";
+        String newPassword = "newPassword123";
+        
+        PasswordChangeRequest request = PasswordChangeRequest.builder()
+                .currentPassword(wrongCurrentPassword)
+                .newPassword(newPassword)
+                .confirmPassword(newPassword)
+                .build();
+        
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches(wrongCurrentPassword, testUser.getPassword())).thenReturn(false);
+        
+        // When/Then
+        assertThatThrownBy(() -> profileService.changePassword(username, request))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessageContaining("Current password is incorrect");
+    }
+    
+    @Test
+    @DisplayName("Should throw InvalidRequestException when passwords don't match")
+    void should_ThrowInvalidRequestException_When_PasswordsDontMatch() {
+        // Given
+        String username = "testuser";
+        String currentPassword = "password123";
+        String newPassword = "newPassword123";
+        String confirmPassword = "differentPassword123";
+        
+        PasswordChangeRequest request = PasswordChangeRequest.builder()
+                .currentPassword(currentPassword)
+                .newPassword(newPassword)
+                .confirmPassword(confirmPassword)
+                .build();
+        
+        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
+        when(passwordEncoder.matches(currentPassword, testUser.getPassword())).thenReturn(true);
+        
+        // When/Then
+        assertThatThrownBy(() -> profileService.changePassword(username, request))
+                .isInstanceOf(InvalidRequestException.class)
+                .hasMessageContaining("New password and confirmation do not match");
     }
 } 

@@ -1,25 +1,21 @@
 package dev.idachev.userservice.web;
 
 import dev.idachev.userservice.model.Role;
-import dev.idachev.userservice.service.AuthenticationService;
-import dev.idachev.userservice.service.ProfileService;
+import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.service.UserService;
-import dev.idachev.userservice.web.dto.BanStatusResponse;
-import dev.idachev.userservice.web.dto.GenericResponse;
-import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
-import dev.idachev.userservice.web.dto.RoleUpdateResponse;
-import dev.idachev.userservice.web.dto.UserResponse;
-import dev.idachev.userservice.web.dto.UsernameAvailabilityResponse;
+import dev.idachev.userservice.util.ResponseBuilder;
+import dev.idachev.userservice.web.dto.*;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,57 +23,26 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Controller for user management operations
+ * Controller for user management operations (Admin focused)
  */
 @RestController
 @RequestMapping("/api/v1")
-@Tag(name = "User Management")
+@Tag(name = "User Management", description = "Endpoints for viewing and managing users (Admin access generally required)")
 @Validated
 @Slf4j
+@RequiredArgsConstructor
 public class UserController {
 
     private final UserService userService;
-    private final AuthenticationService authenticationService;
-    private final ProfileService profileService;
 
-    @Autowired
-    public UserController(UserService userService,
-                         AuthenticationService authenticationService, 
-                         ProfileService profileService) {
-        this.userService = userService;
-        this.authenticationService = authenticationService;
-        this.profileService = profileService;
-    }
-
-    @GetMapping("/user/check-username")
-    @Operation(summary = "Check username availability")
+    @GetMapping("/users/check-username")
+    @Operation(summary = "Check username availability", description = "Checks if a username is available for registration.")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Username availability checked",
+                    content = @Content(schema = @Schema(implementation = UsernameAvailabilityResponse.class)))
+    })
     public ResponseEntity<UsernameAvailabilityResponse> checkUsernameAvailability(@RequestParam String username) {
         return ResponseEntity.ok(userService.checkUsernameAvailability(username));
-    }
-    
-    @GetMapping("/user/current-user")
-    @Operation(
-        summary = "Get current user information", 
-        description = "Retrieves information about the currently authenticated user."
-    )
-    @PreAuthorize("isAuthenticated()")
-    public ResponseEntity<UserResponse> getCurrentUser() {
-        return ResponseEntity.ok(profileService.getCurrentUserInfo());
-    }
-    
-    @PostMapping("/user/update-username")
-    @Operation(summary = "Update username")
-    public ResponseEntity<GenericResponse> updateUsername(
-            @Valid @RequestBody ProfileUpdateRequest request,
-            @AuthenticationPrincipal UserDetails userDetails) {
-        log.debug("Received updateUsername request: {}", request.getUsername());
-        GenericResponse response = authenticationService.changeUsername(
-            userDetails.getUsername(),
-            request.getUsername(),
-            request.getCurrentPassword());
-        log.info("Username change processed: from '{}' to '{}'", 
-                userDetails.getUsername(), request.getUsername());
-        return ResponseEntity.ok(response);
     }
 
     // ===================== ADMIN ENDPOINTS =====================
@@ -85,53 +50,126 @@ public class UserController {
     @GetMapping("/admin/users")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(
-        summary = "Get all users (admin only)", 
-        description = "Retrieves information about all users in the system", 
+        summary = "Get all users (Admin only)", 
+        description = "Retrieves a list of all users in the system.", 
         security = @SecurityRequirement(name = "bearerAuth")
     )
-    public ResponseEntity<List<UserResponse>> getAllUsers() {
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Users retrieved successfully"),
+            @ApiResponse(responseCode = "401", description = "Unauthorized"),
+            @ApiResponse(responseCode = "403", description = "Forbidden")
+    })
+    public ResponseEntity<List<UserResponse>> getAllUsersAdmin() {
         return ResponseEntity.ok(userService.getAllUsers());
     }
 
     @PutMapping("/admin/users/{userId}/role")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(
-        summary = "Update user role (admin only)", 
-        description = "Changes a user's role in the system", 
+        summary = "Update user role (Admin only)", 
+        description = "Changes a specific user's role. Invalidates user's tokens.", 
         security = @SecurityRequirement(name = "bearerAuth")
     )
-    public ResponseEntity<RoleUpdateResponse> updateUserRole(
+    @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "User role updated successfully",
+                content = @Content(schema = @Schema(implementation = RoleUpdateResponse.class))),
+        @ApiResponse(responseCode = "400", description = "Invalid role specified"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Forbidden (e.g., admin changing own role)"),
+        @ApiResponse(responseCode = "404", description = "User not found")
+    })
+    public ResponseEntity<RoleUpdateResponse> updateUserRoleAdmin(
             @PathVariable UUID userId,
             @RequestParam Role role) {
-        return ResponseEntity.ok(userService.updateUserRole(userId, role));
+        log.info("Admin request to update role for user {} to {}", userId, role);
+        User updatedUser = userService.updateUserRole(userId, role);
+        boolean tokenInvalidationSucceeded = true;
+        RoleUpdateResponse response = RoleUpdateResponse.success(
+                updatedUser.getId(),
+                updatedUser.getUsername(),
+                updatedUser.getRole(),
+                tokenInvalidationSucceeded 
+        );
+        return ResponseEntity.ok(response);
     }
 
     @PutMapping("/admin/users/{userId}/ban")
     @PreAuthorize("hasRole('ADMIN')")
     @Operation(
-        summary = "Toggle user ban status (admin only)", 
-        description = "Toggles a user's ban status (banned/unbanned)", 
+        summary = "Toggle user ban status (Admin only)", 
+        description = "Toggles a user's ban status (banned/unbanned). Invalidates tokens if user is banned.", 
         security = @SecurityRequirement(name = "bearerAuth")
     )
-    public ResponseEntity<BanStatusResponse> toggleUserBan(@PathVariable UUID userId) {
-        return ResponseEntity.ok(userService.toggleUserBan(userId));
+     @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "User ban status toggled successfully",
+                content = @Content(schema = @Schema(implementation = BanStatusResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Forbidden (e.g., admin banning self)"),
+        @ApiResponse(responseCode = "404", description = "User not found")
+    })
+    public ResponseEntity<BanStatusResponse> toggleUserBanAdmin(@PathVariable UUID userId) {
+        log.info("Admin request to toggle ban status for user {}", userId);
+        User updatedUser = userService.toggleUserBan(userId);
+        String message = updatedUser.isBanned() ? "User banned successfully" : "User unbanned successfully";
+        BanStatusResponse response = BanStatusResponse.success(
+            updatedUser.getId(), 
+            updatedUser.getUsername(), 
+            updatedUser.isBanned(),
+            message
+        );
+        return ResponseEntity.ok(response);
     }
 
-    @GetMapping("/users/{id}")
+    @GetMapping("/admin/users/{userId}")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(
-        summary = "Get user by ID (internal service use)",
-        description = "Retrieves basic user information by ID for internal service communication"
+        summary = "Get user by ID (Admin only)",
+        description = "Retrieves detailed information about a specific user by ID.",
+        security = @SecurityRequirement(name = "bearerAuth")
     )
-    public ResponseEntity<UserResponse> getUserById(@PathVariable UUID id) {
-        return ResponseEntity.ok(userService.getUserById(id));
+     @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "User found successfully" ),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Forbidden"),
+        @ApiResponse(responseCode = "404", description = "User not found")
+    })
+    public ResponseEntity<UserResponse> getUserByIdAdmin(@PathVariable UUID userId) {
+        return ResponseEntity.ok(userService.getUserById(userId));
     }
 
-    @GetMapping("/users/{id}/username")
+    @DeleteMapping("/admin/users/{userId}")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(
-        summary = "Get username by user ID (internal service use)",
-        description = "Lightweight endpoint to retrieve just the username for a given user ID"
+        summary = "Delete user (Admin only)",
+        description = "Permanently deletes a user from the system.",
+        security = @SecurityRequirement(name = "bearerAuth")
     )
-    public ResponseEntity<String> getUsernameById(@PathVariable UUID id) {
-        return ResponseEntity.ok(userService.getUsernameById(id));
+     @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "User deleted successfully",
+                content = @Content(schema = @Schema(implementation = GenericResponse.class))),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Forbidden (e.g., admin deleting self)"),
+        @ApiResponse(responseCode = "404", description = "User not found")
+    })
+    public ResponseEntity<GenericResponse> deleteUserAdmin(@PathVariable UUID userId) {
+        log.warn("Admin request to DELETE user with ID: {}", userId);
+        userService.deleteUser(userId);
+        return ResponseEntity.ok(ResponseBuilder.success("User successfully deleted"));
+    }
+
+    @GetMapping("/admin/users/stats")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(
+        summary = "Get user statistics (Admin only)",
+        description = "Retrieves aggregated statistics about users.",
+        security = @SecurityRequirement(name = "bearerAuth")
+    )
+     @ApiResponses(value = {
+        @ApiResponse(responseCode = "200", description = "Statistics retrieved successfully"),
+        @ApiResponse(responseCode = "401", description = "Unauthorized"),
+        @ApiResponse(responseCode = "403", description = "Forbidden")
+    })
+    public ResponseEntity<UserStatsResponse> getUserStatsAdmin() {
+        return ResponseEntity.ok(userService.getUserStats());
     }
 }

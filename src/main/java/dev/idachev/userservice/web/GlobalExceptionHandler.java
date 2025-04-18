@@ -2,8 +2,10 @@ package dev.idachev.userservice.web;
 
 import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.DuplicateUserException;
+import dev.idachev.userservice.exception.InvalidRequestException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.exception.UserServiceException;
+import dev.idachev.userservice.exception.VerificationException;
 import dev.idachev.userservice.web.dto.GenericResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.LocalDateTime;
 import java.util.stream.Collectors;
@@ -52,27 +55,35 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * Handles resource not found exceptions
+     * Handles resource not found exceptions (UsernameNotFoundException is handled separately)
      */
-    @ExceptionHandler({UsernameNotFoundException.class, ResourceNotFoundException.class})
-    public ResponseEntity<GenericResponse> handleNotFoundExceptions(Exception ex) {
+    @ExceptionHandler(ResourceNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND) // Ensure 404 is always returned
+    public ResponseEntity<GenericResponse> handleResourceNotFoundException(ResourceNotFoundException ex) {
         log.warn("Resource not found: {}", ex.getMessage());
-        // Check if it's related to authentication
-        if (ex instanceof UsernameNotFoundException ||
-            (ex instanceof ResourceNotFoundException && ex.getMessage().contains("User not found"))) {
-            return createResponse(HttpStatus.UNAUTHORIZED, "Invalid credentials");
-        }
+        // Always return 404 for ResourceNotFoundException
         return createResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
     /**
-     * Handles user not found exceptions
+     * Specifically handles UsernameNotFoundException (often implies invalid credentials during login)
+     */
+    @ExceptionHandler(UsernameNotFoundException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ResponseEntity<GenericResponse> handleUsernameNotFoundException(UsernameNotFoundException ex) {
+        log.warn("Resource not found (Username): {}", ex.getMessage());
+        // Treat as invalid credentials during authentication attempt
+        return createResponse(HttpStatus.UNAUTHORIZED, "Invalid credentials");
+    }
+
+    /**
+     * Handles user not found exceptions from our custom exception type
      */
     @ExceptionHandler(dev.idachev.userservice.exception.UserNotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public ResponseEntity<GenericResponse> handleUserNotFoundException(dev.idachev.userservice.exception.UserNotFoundException ex) {
         log.warn("User not found: {}", ex.getMessage());
-        
+
         // Always return NOT_FOUND for user not found exceptions
         return createResponse(HttpStatus.NOT_FOUND, ex.getMessage());
     }
@@ -84,7 +95,7 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.UNAUTHORIZED)
     public ResponseEntity<GenericResponse> handleInvalidTokenException(dev.idachev.userservice.exception.InvalidTokenException ex) {
         log.warn("Invalid token: {}", ex.getMessage());
-        
+
         // Always return UNAUTHORIZED for token validation failures
         return createResponse(HttpStatus.UNAUTHORIZED, ex.getMessage());
     }
@@ -96,7 +107,7 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ResponseEntity<GenericResponse> handleValidationExceptions(MethodArgumentNotValidException ex) {
         log.debug("Validation error on request: {}", ex.getMessage());
-        
+
         String errorMessage = ex.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
                 .collect(Collectors.joining("; "));
@@ -111,7 +122,7 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ResponseEntity<GenericResponse> handleConstraintViolation(jakarta.validation.ConstraintViolationException ex) {
         log.debug("Constraint violation: {}", ex.getMessage());
-        
+
         String errorMessage = ex.getConstraintViolations().stream()
                 .map(violation -> {
                     String path = violation.getPropertyPath().toString();
@@ -136,12 +147,23 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles invalid request exceptions
+     */
+    @ExceptionHandler(InvalidRequestException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<GenericResponse> handleInvalidRequestException(InvalidRequestException ex) {
+        log.warn("Invalid request: {}", ex.getMessage());
+        return createResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    /**
      * Handles duplicate user registration attempts
      */
     @ExceptionHandler(DuplicateUserException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
+    @ResponseStatus(HttpStatus.CONFLICT) // Changed back to CONFLICT from BAD_REQUEST
     public ResponseEntity<GenericResponse> handleDuplicateUserException(DuplicateUserException ex) {
         log.warn("Duplicate user error: {}", ex.getMessage());
+        // Return 409 Conflict as this is the semantically correct status
         return createResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
@@ -151,7 +173,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UserServiceException.class)
     public ResponseEntity<GenericResponse> handleUserServiceException(UserServiceException ex) {
         log.warn("User service error: {} with code: {}", ex.getMessage(), ex.getErrorCode());
-        
+
         // Determine HTTP status based on error code or default to BAD_REQUEST
         HttpStatus status = HttpStatus.BAD_REQUEST;
         if (ex.getErrorCode().startsWith("AUTH_")) {
@@ -163,7 +185,7 @@ public class GlobalExceptionHandler {
         } else if (ex.getErrorCode().startsWith("CONFLICT_")) {
             status = HttpStatus.CONFLICT;
         }
-        
+
         GenericResponse errorResponse = GenericResponse.builder()
                 .status(status.value())
                 .message(ex.getMessage())
@@ -171,7 +193,7 @@ public class GlobalExceptionHandler {
                 .success(false)
                 .errorCode(ex.getErrorCode()) // Include the error code in the response
                 .build();
-                
+
         return ResponseEntity.status(status).body(errorResponse);
     }
 
@@ -194,15 +216,65 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Handles account verification exceptions
+     */
+    @ExceptionHandler(dev.idachev.userservice.exception.AccountVerificationException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ResponseEntity<GenericResponse> handleAccountVerificationException(dev.idachev.userservice.exception.AccountVerificationException ex) {
+        log.warn("Account verification error: {}", ex.getMessage());
+        return createResponse(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    /**
+     * Handles verification token exceptions
+     */
+    @ExceptionHandler(VerificationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<GenericResponse> handleVerificationException(VerificationException ex) {
+        log.warn("Verification error: {}", ex.getMessage());
+        return createResponse(HttpStatus.BAD_REQUEST, ex.getMessage());
+    }
+
+    /**
+     * Handles exceptions for operations forbidden by business logic (e.g., admin self-ban).
+     */
+    @ExceptionHandler(dev.idachev.userservice.exception.OperationForbiddenException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ResponseEntity<GenericResponse> handleOperationForbiddenException(dev.idachev.userservice.exception.OperationForbiddenException ex) {
+        log.warn("Forbidden operation attempt: {}", ex.getMessage());
+        return createResponse(HttpStatus.FORBIDDEN, ex.getMessage());
+    }
+
+    /**
+     * Handles failures during email sending.
+     */
+    @ExceptionHandler(dev.idachev.userservice.exception.EmailSendException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR) // Or SERVICE_UNAVAILABLE? 500 is common.
+    public ResponseEntity<GenericResponse> handleEmailSendException(dev.idachev.userservice.exception.EmailSendException ex) {
+        // Log as error as it indicates a backend system failure
+        log.error("Email sending failed: {}", ex.getMessage(), ex.getCause()); 
+        return createResponse(HttpStatus.INTERNAL_SERVER_ERROR, 
+                              "Failed to send email. Please try again later or contact support.");
+    }
+
+    /**
      * Fallback handler for all other uncaught exceptions
      */
     @ExceptionHandler(Exception.class)
-    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public ResponseEntity<GenericResponse> handleGenericException(Exception ex) {
-        log.error("Unhandled exception", ex);
+        // Specific handling for NoResourceFoundException (e.g., static assets)
+        if (ex instanceof NoResourceFoundException) { // Use instanceof
+             log.warn("Static resource not found: {}", ex.getMessage());
+             // Return 404 using the helper method
+             return createResponse(HttpStatus.NOT_FOUND, "Resource not found");
+        }
         
-        // Don't expose detailed error message for security reasons 
-        return createResponse(HttpStatus.INTERNAL_SERVER_ERROR, "An unexpected error occurred. Please try again later.");
+        // Log all other unexpected exceptions as errors
+        log.error("Unhandled internal server error", ex);
+
+        // Return generic 500 response
+        return createResponse(HttpStatus.INTERNAL_SERVER_ERROR, 
+                              "An unexpected internal error occurred. Please try again later.");
     }
 
     /**
@@ -215,7 +287,7 @@ public class GlobalExceptionHandler {
                 .timestamp(LocalDateTime.now())
                 .success(false)
                 .build();
-                
+
         return ResponseEntity.status(status).body(errorResponse);
     }
 } 

@@ -16,34 +16,30 @@ import java.util.Objects;
 public class EntityMapper {
 
     /**
-     * Maps RegisterRequest to a new User entity
+     * Maps RegisterRequest to a new User entity with an encoded password.
+     *
+     * @param request         The registration request DTO.
+     * @param passwordEncoder The password encoder service.
+     * @param verificationToken The verification token to associate with the user.
+     * @return A new User entity, not yet persisted.
      */
-    public static User mapToNewUser(RegisterRequest request) {
+    public static User mapToNewUser(RegisterRequest request, PasswordEncoder passwordEncoder, String verificationToken) {
         Objects.requireNonNull(request, "Cannot map null request to User");
+        Objects.requireNonNull(passwordEncoder, "PasswordEncoder cannot be null");
+        Objects.requireNonNull(verificationToken, "Verification token cannot be null");
 
         LocalDateTime now = LocalDateTime.now();
 
         return User.builder()
-                .username(request.getUsername())
-                .email(request.getEmail())
-                .password(request.getPassword()) // Not encoded yet
+                .username(request.username())
+                .email(request.email())
+                .password(passwordEncoder.encode(request.password()))
                 .role(Role.USER)
                 .enabled(false)
                 .banned(false)
                 .createdOn(now)
                 .updatedOn(now)
+                .verificationToken(verificationToken)
                 .build();
-    }
-
-    /**
-     * Maps RegisterRequest to a new User with encoded password and verification token
-     */
-    public static User mapToNewUser(RegisterRequest request, PasswordEncoder passwordEncoder,
-                                   String verificationToken) {
-        User user = mapToNewUser(request);
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
-        user.setVerificationToken(verificationToken);
-
-        return user;
     }
 } 

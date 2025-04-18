@@ -39,6 +39,21 @@ spring:
           starttls:
             enable: true
 
+# Cache Configuration (Moved under the main spring block)
+cache:
+  type: caffeine
+  cache-names: users,usernames,userStats,jwt_blacklist,user_invalidations
+  caffeine:
+    spec: maximumSize=500,expireAfterAccess=30m # Adjust spec as needed
+
+# Custom Email Service Configuration
+email-service-config:
+  app-name: ${spring.application.name} # Reference application name
+  from-address: ${MAIL_USERNAME} # Reference from .env
+  contact-recipient: ${CONTACT_RECIPIENT:your-contact-recipient@example.com} # Reference from .env (add CONTACT_RECIPIENT=... to .env) or uses default
+  service-base-url: ${app.service.url} # Reference app.service.url
+  packages-to-scan: dev.idachev.userservice.web
+
 # Application configuration
 app:
   service:
@@ -50,8 +65,6 @@ app:
 jwt:
   secret: ${JWT_SECRET}
   expiration: 86400000 # 24 hours
-  blacklist:
-    cleanup-interval: 3600 # 1 hour
 
 # CORS configuration
 cors:
@@ -77,4 +90,25 @@ springdoc:
     operationsSorter: method
     tagsSorter: alpha
     disable-swagger-default-url: true
-  packages-to-scan: dev.idachev.userservice.web
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,env,loggers,caches
+  endpoint:
+    health:
+      show-details: when_authorized
+      # Exclude Redis from health checks since it's not being used
+      group:
+        readiness:
+          include: db # Include only DB for readiness probe example
+        liveness:
+          include: ping # Include only ping for liveness probe example
+  health:
+    redis:
+      enabled: false # Disable Redis health indicator
+  metrics:
+    tags:
+      application: ${spring.application.name}

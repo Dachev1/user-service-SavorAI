@@ -200,6 +200,7 @@ class UserProfileIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody()).isNotNull();
         assertThat(response.getBody().isSuccess()).isFalse();
+        assertThat(response.getBody().getMessage()).contains("Username already exists");
         
         // Verify the username was not updated
         User unchangedUser = userRepository.findById(testUser.getId()).orElseThrow();

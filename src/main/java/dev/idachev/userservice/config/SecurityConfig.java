@@ -2,6 +2,7 @@ package dev.idachev.userservice.config;
 
 import dev.idachev.userservice.security.JwtAuthenticationFilter;
 import dev.idachev.userservice.service.UserDetailsService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,10 +19,12 @@ import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.http.HttpStatus;
 
 import java.util.Arrays;
 import java.util.List;
@@ -29,16 +32,16 @@ import java.util.List;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
+@RequiredArgsConstructor
 public class SecurityConfig {
 
     private static final String[] PUBLIC_ENDPOINTS = {
-            "/api/v1/auth/signin", "/api/v1/auth/signup", "/api/v1/auth/logout", 
-            "/api/v1/auth/refresh-token", "/api/v1/auth/check-status",
+            "/api/v1/auth/signin", "/api/v1/auth/signup", "/api/v1/auth/check-status",
             "/api/v1/verification/status", "/api/v1/verification/resend", "/api/v1/verification/verify/**",
-            "/api/v1/profile", "/api/v1/profile/**", "/api/v1/user/check-username", "/api/v1/users/*/username",
+            "/api/v1/users/check-username",
             "/api/v1/contact/submit",
             "/swagger-ui/**", "/api-docs/**", "/v3/api-docs/**",
-            "/css/**", "/js/**", "/images/**"
+            "/css/**", "/js/**", "/images/**", "/favicon.ico"
     };
 
     private static final String[] ADMIN_ENDPOINTS = {
@@ -51,23 +54,20 @@ public class SecurityConfig {
     @Value("${cors.allowed-origins:*}")
     private String allowedOrigins;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthFilter, UserDetailsService userDetailsService) {
-        this.jwtAuthFilter = jwtAuthFilter;
-        this.userDetailsService = userDetailsService;
-    }
-
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers(ADMIN_ENDPOINTS).hasAuthority("ROLE_ADMIN")
+                        .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
+                        .requestMatchers(ADMIN_ENDPOINTS).hasRole("ADMIN")
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .exceptionHandling(e -> e
+                        .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .authenticationProvider(authenticationProvider())
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
@@ -79,10 +79,13 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(List.of(allowedOrigins.split(",")));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList(
-                "Authorization", "Content-Type", "X-Requested-With", 
-                "X-Request-ID", "X-Priority", "Cache-Control", "Origin"
+                "Authorization", "Content-Type", "X-Requested-With", "Accept", 
+                "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers"
         ));
-        configuration.setExposedHeaders(Arrays.asList("X-Request-ID", "Authorization"));
+        configuration.setExposedHeaders(Arrays.asList(
+                 "Origin", "Content-Type", "Accept", "Authorization", 
+                 "Access-Control-Allow-Origin", "Access-Control-Allow-Credentials"
+        ));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
@@ -108,4 +111,4 @@ public class SecurityConfig {
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder(12);
     }
-} 
+}

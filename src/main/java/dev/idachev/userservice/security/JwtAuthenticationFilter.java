@@ -19,6 +19,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.http.HttpHeaders;
+import io.jsonwebtoken.ExpiredJwtException;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -56,10 +58,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // User endpoints that don't require auth
             "/api/v1/user/check-username",
             
-            // Profile endpoints
-            "/api/v1/profile",
-            "/api/v1/profile/**",
-
             // Contact form endpoint
             "/api/v1/contact/submit",
 
@@ -109,11 +107,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull FilterChain filterChain) throws ServletException, IOException {
         
         try {
-            String jwtToken = extractTokenFromRequest(request);
+            String jwtToken = extractJwtFromRequest(request);
             
             if (StringUtils.hasText(jwtToken)) {
                 // Handle blacklisted tokens
-                if (tokenBlacklistService.isBlacklisted(jwtToken)) {
+                if (tokenBlacklistService.isJwtBlacklisted(jwtToken)) {
                     rejectBlacklistedToken(response);
                     return;
                 }
@@ -131,14 +129,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     }
     
     /**
-     * Extracts JWT token from request header
+     * Extracts JWT token from Authorization header
      */
-    private String extractTokenFromRequest(HttpServletRequest request) {
-        String bearerToken = request.getHeader(AUTHORIZATION_HEADER);
-        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith(BEARER_PREFIX)) {
-            return bearerToken.substring(BEARER_PREFIX.length());
-        }
-        return null;
+    private String extractJwtFromRequest(HttpServletRequest request) {
+        String authHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+        return authHeader != null && authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null;
     }
     
     /**
@@ -154,12 +149,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
      * Validates and authenticates a JWT token
      */
     private void authenticateToken(String token, HttpServletRequest request) {
-        UUID userId = jwtConfig.extractUserId(token);
-        if (userId == null) {
+        if (token == null || token.isBlank()) {
             return;
         }
         
         try {
+            UUID userId = jwtConfig.extractUserId(token);
+            if (userId == null) {
+                return;
+            }
+            
             UserDetails userDetails = userDetailsService.loadUserById(userId);
             
             if (jwtConfig.validateToken(token, userDetails)) {
@@ -167,12 +166,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         userDetails, null, userDetails.getAuthorities());
                 authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-                log.debug("Successfully authenticated user ID: {}", userId);
             }
-        } catch (UsernameNotFoundException e) {
-            log.warn("User not found for token with ID {}", userId);
+        } catch (UsernameNotFoundException | ExpiredJwtException e) {
+            // These are expected exceptions, just log at debug level
+            log.debug("Token validation failed: {}", e.getMessage());
         } catch (Exception e) {
-            log.warn("Token validation failed: {}", e.getMessage());
+            log.warn("Unexpected error during token validation: {}", e.getMessage());
         }
     }
 }

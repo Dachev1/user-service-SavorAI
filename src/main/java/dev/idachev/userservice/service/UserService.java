@@ -1,5 +1,6 @@
 package dev.idachev.userservice.service;
 
+import dev.idachev.userservice.exception.OperationForbiddenException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.mapper.DtoMapper;
 import dev.idachev.userservice.mapper.EntityMapper;
@@ -7,16 +8,15 @@ import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
-import dev.idachev.userservice.web.dto.BanStatusResponse;
-import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
-import dev.idachev.userservice.web.dto.RegisterRequest;
-import dev.idachev.userservice.web.dto.RoleUpdateResponse;
-import dev.idachev.userservice.web.dto.UserResponse;
-import dev.idachev.userservice.web.dto.UsernameAvailabilityResponse;
+import dev.idachev.userservice.web.dto.*;
+import dev.idachev.userservice.service.EmailService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -34,28 +34,15 @@ import java.util.stream.Collectors;
  */
 @Slf4j
 @Service
+@RequiredArgsConstructor
 public class UserService {
 
     private final UserRepository userRepository;
-    private final UserDetailsService userDetailsService;
     private final CacheManager cacheManager;
     private final PasswordEncoder passwordEncoder;
     private final EmailService emailService;
     private final TokenService tokenService;
-
-    public UserService(UserRepository userRepository,
-                      UserDetailsService userDetailsService,
-                      CacheManager cacheManager,
-                      PasswordEncoder passwordEncoder,
-                      EmailService emailService,
-                      TokenService tokenService) {
-        this.userRepository = userRepository;
-        this.userDetailsService = userDetailsService;
-        this.cacheManager = cacheManager;
-        this.passwordEncoder = passwordEncoder;
-        this.emailService = emailService;
-        this.tokenService = tokenService;
-    }
+    private final VerificationService verificationService;
 
     /**
      * Registers a new user
@@ -65,7 +52,7 @@ public class UserService {
         User newUser = EntityMapper.mapToNewUser(
                 request,
                 passwordEncoder,
-                emailService.generateVerificationToken()
+                verificationService.generateVerificationToken()
         );
         return userRepository.save(newUser);
     }
@@ -82,80 +69,61 @@ public class UserService {
     }
 
     /**
-     * Updates a user's role and refreshes their token
+     * Updates a user's role. Invalidates user tokens.
+     * Throws ResourceNotFoundException if user not found.
+     * Throws OperationForbiddenException if admin tries to change own role.
+     * Re-throws exceptions from tokenService.invalidateUserTokens.
      */
     @Transactional
-    @CacheEvict(value = {"users", "usernames"}, allEntries = true)
-    public RoleUpdateResponse updateUserRole(UUID userId, Role role) {
+    @CacheEvict(value = {"users", "usernames"}, key = "#userId")
+    public User updateUserRole(UUID userId, Role role) {
         if (isCurrentUser(userId)) {
-            return RoleUpdateResponse.error("Admins cannot change their own role");
+            throw new OperationForbiddenException("Admins cannot change their own role");
         }
-        
-        try {
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
 
-            user.setRole(role);
-            user.setUpdatedOn(LocalDateTime.now());
-            User savedUser = userRepository.saveAndFlush(user);
-            
-            boolean tokenRefreshed = true;
-            try {
-                tokenService.invalidateUserTokens(userId);
-            } catch (Exception e) {
-                log.error("Failed to refresh token for user {}: {}", userId, e.getMessage());
-                tokenRefreshed = false;
-            }
-            
-            return RoleUpdateResponse.success(
-                savedUser.getId(),
-                savedUser.getUsername(),
-                savedUser.getRole(),
-                tokenRefreshed
-            );
-        } catch (ResourceNotFoundException e) {
-            return RoleUpdateResponse.error(e.getMessage());
-        } catch (Exception e) {
-            log.error("Error during role update: {}", e.getMessage(), e);
-            return RoleUpdateResponse.error("Failed to update role: " + e.getMessage());
-        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+
+        user.updateRole(role);
+        User savedUser = userRepository.save(user);
+
+        tokenService.invalidateUserTokens(userId);
+
+        evictCollectionCaches();
+
+        return savedUser;
     }
 
     /**
-     * Toggles a user's ban status and invalidates their tokens if they are banned
+     * Toggles a user's ban status. Invalidates tokens if banned.
+     * Throws ResourceNotFoundException if user not found.
+     * Throws OperationForbiddenException if admin tries to ban self.
+     * Re-throws exceptions from tokenService.invalidateUserTokens.
      */
     @Transactional
-    @CacheEvict(value = {"users", "usernames"}, allEntries = true)
-    public BanStatusResponse toggleUserBan(UUID userId) {
+    @CacheEvict(value = {"users", "usernames"}, key = "#userId")
+    public User toggleUserBan(UUID userId) {
         if (isCurrentUser(userId)) {
-            return BanStatusResponse.error("Admins cannot ban themselves");
+            throw new OperationForbiddenException("Admins cannot ban themselves");
         }
-        
-        try {
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
-                    
-            user.setBanned(!user.isBanned());
-            User savedUser = userRepository.save(user);
-            
-            String message = user.isBanned() ? "User banned successfully" : "User unbanned successfully";
-            
-            if (user.isBanned()) {
-                tokenService.invalidateUserTokens(userId);
-            }
-            
-            return BanStatusResponse.success(
-                savedUser.getId(), 
-                savedUser.getUsername(), 
-                savedUser.isBanned(),
-                message
-            );
-        } catch (ResourceNotFoundException e) {
-            return BanStatusResponse.error(e.getMessage());
-        } catch (Exception e) {
-            log.error("Error during ban operation: {}", e.getMessage(), e);
-            return BanStatusResponse.error("Failed to process ban operation: " + e.getMessage());
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+
+        if (user.isBanned()) {
+            user.unban();
+        } else {
+            user.ban();
         }
+        User savedUser = userRepository.save(user);
+
+        if (savedUser.isBanned()) {
+            tokenService.invalidateUserTokens(userId);
+        }
+
+        evictCollectionCaches();
+
+        return savedUser;
     }
 
     /**
@@ -211,26 +179,41 @@ public class UserService {
     }
 
     /**
-     * Updates a user's profile
+     * Updates a user's profile (currently only username).
      */
     @Transactional
-    @CacheEvict(value = {"users", "usernames"}, allEntries = true)
+    @Caching(evict = {
+            @CacheEvict(value = "users", key = "'username_' + #currentUsername"),
+            @CacheEvict(value = "usernames", key = "#currentUsername")
+    })
     public UserResponse updateProfile(String currentUsername, ProfileUpdateRequest request) {
         User user = findByUsername(currentUsername);
         boolean usernameChanged = false;
+        String newUsername = request.getUsername();
 
-        if (request.getUsername() != null && !request.getUsername().equals(currentUsername)) {
-            if (userRepository.existsByUsername(request.getUsername())) {
+        if (newUsername != null && !newUsername.isBlank() && !newUsername.equals(currentUsername)) {
+            if (userRepository.existsByUsername(newUsername)) {
                 throw new IllegalArgumentException("Username is already taken");
             }
+            user.updateUsername(newUsername);
             usernameChanged = true;
-            user.setUsername(request.getUsername());
         }
 
         User savedUser = userRepository.save(user);
 
         if (usernameChanged) {
-            userDetailsService.handleUsernameChange(currentUsername, savedUser.getUsername(), savedUser.getId());
+            log.debug("Manually evicting caches for username change: {} -> {}", currentUsername, savedUser.getUsername());
+            var usersCache = cacheManager.getCache("users");
+            if (usersCache != null) {
+                usersCache.evict("'username_'" + currentUsername);
+                usersCache.evict("'username_'" + savedUser.getUsername());
+                usersCache.evict(savedUser.getId());
+            }
+            var usernamesCache = cacheManager.getCache("usernames");
+            if (usernamesCache != null) {
+                usernamesCache.evict(savedUser.getId());
+            }
+            evictCollectionCaches();
         }
 
         return DtoMapper.mapToUserResponse(savedUser);
@@ -243,6 +226,46 @@ public class UserService {
     public UsernameAvailabilityResponse checkUsernameAvailability(String username) {
         boolean isAvailable = !existsByUsername(username);
         return UsernameAvailabilityResponse.of(username, isAvailable);
+    }
+
+    /**
+     * Deletes a user from the system (admin only)
+     */
+    @Transactional
+    @CacheEvict(value = {"users", "usernames"}, allEntries = true)
+    public void deleteUser(UUID userId) {
+        if (isCurrentUser(userId)) {
+            throw new OperationForbiddenException("Admins cannot delete themselves");
+        }
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+
+        tokenService.invalidateUserTokens(userId);
+
+        userRepository.delete(user);
+        log.info("Deleted user with ID: {}", userId);
+        evictCollectionCaches();
+    }
+
+    /**
+     * Gets user statistics (admin only)
+     */
+    @Transactional(readOnly = true)
+    public UserStatsResponse getUserStats() {
+        long totalUsers = userRepository.count();
+        long activeUsers = userRepository.countByBannedFalse();
+        long bannedUsers = userRepository.countByBannedTrue();
+        long verifiedUsers = userRepository.countByEnabledTrue();
+        long adminUsers = userRepository.countByRole(Role.ADMIN);
+
+        return UserStatsResponse.builder()
+                .totalUsers(totalUsers)
+                .activeUsers(activeUsers)
+                .bannedUsers(bannedUsers)
+                .verifiedUsers(verifiedUsers)
+                .adminUsers(adminUsers)
+                .timestamp(LocalDateTime.now())
+                .build();
     }
 
     /**
@@ -281,5 +304,16 @@ public class UserService {
     public String getUsernameById(UUID userId) {
         return userRepository.findUsernameById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+    }
+
+    private void evictCollectionCaches() {
+        Cache usersCache = cacheManager.getCache("users");
+        if (usersCache != null) {
+            usersCache.evict("'allUsers'");
+        }
+        Cache statsCache = cacheManager.getCache("userStats");
+        if (statsCache != null) {
+            statsCache.clear();
+        }
     }
 } 

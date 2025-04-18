@@ -28,7 +28,7 @@ public class DtoMapper {
                 .email(user.getEmail())
                 .role(user.getRole().name())
                 .banned(user.isBanned())
-                .verified(user.isEnabled())
+                .enabled(user.isEnabled())
                 .verificationPending(user.isVerificationPending())
                 .createdOn(user.getCreatedOn())
                 .lastLogin(user.getLastLogin())
@@ -40,13 +40,16 @@ public class DtoMapper {
      */
     public static AuthResponse mapToAuthResponse(User user, String token) {
         Objects.requireNonNull(user, "Cannot map null user to AuthResponse");
+        
+        // Ensure token is never null
+        String safeToken = token != null ? token : "";
 
         return AuthResponse.builder()
-                .token(token != null ? token : "")
+                .token(safeToken)
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .role(user.getRole().name())
-                .verified(user.isEnabled())
+                .enabled(user.isEnabled())
                 .verificationPending(user.isVerificationPending())
                 .banned(user.isBanned())
                 .lastLogin(user.getLastLogin())
@@ -68,8 +71,8 @@ public class DtoMapper {
                 .username(user.getUsername())
                 .email(user.getEmail())
                 .role(user.getRole().name())
-                .token("")
-                .verified(user.isEnabled())
+                .token("")  // Empty token by default
+                .enabled(user.isEnabled())
                 .verificationPending(user.isVerificationPending())
                 .banned(user.isBanned())
                 .lastLogin(user.getLastLogin())
@@ -86,6 +89,10 @@ public class DtoMapper {
         return AuthResponse.builder()
                 .success(success)
                 .message(message != null ? message : "")
+                .token("")  // Ensure token is not null
+                .username("")  // Ensure username is not null
+                .email("")  // Ensure email is not null
+                .role("")  // Ensure role is not null
                 .build();
     }
 
@@ -109,6 +116,7 @@ public class DtoMapper {
                 .status(status)
                 .message(message != null ? message : "")
                 .timestamp(LocalDateTime.now())
+                .success(status >= 200 && status < 300)  // Set success based on HTTP status code
                 .build();
     }
 } 

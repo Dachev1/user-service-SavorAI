@@ -1,21 +1,20 @@
 package dev.idachev.userservice.web;
 
 import dev.idachev.userservice.service.EmailService;
+import dev.idachev.userservice.util.ResponseBuilder;
 import dev.idachev.userservice.web.dto.ContactFormRequest;
 import dev.idachev.userservice.web.dto.GenericResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 /**
  * Controller for handling contact form submissions
@@ -24,39 +23,37 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @CrossOrigin(origins = "*", maxAge = 3600)
 @RequestMapping("/api/v1/contact")
-@Tag(name = "Contact")
+@Tag(name = "Contact", description = "Endpoint for submitting contact inquiries")
+@RequiredArgsConstructor
 public class ContactController {
 
     private final EmailService emailService;
     
-    @Autowired
-    public ContactController(EmailService emailService) {
-        this.emailService = emailService;
-    }
-
     /**
-     * Endpoint for submitting a contact form
+     * Endpoint for submitting a contact form.
+     * The email sending is performed synchronously/asynchronously based on EmailService configuration.
      *
      * @param request The contact form request
-     * @return Response indicating success or failure
+     * @return Response indicating acceptance of the request
      */
     @PostMapping("/submit")
     @Operation(
             summary = "Submit contact form",
-            description = "Send a contact form submission that will be emailed to the admin"
+            description = "Sends a contact form submission via email to the configured recipient."
     )
     @ApiResponses(value = {
             @ApiResponse(
                     responseCode = "200",
-                    description = "Message sent successfully"
+                    description = "Message submission accepted. Actual email delivery depends on the mail server.",
+                    content = @Content(schema = @Schema(implementation = GenericResponse.class))
             ),
             @ApiResponse(
                     responseCode = "400",
-                    description = "Invalid input data"
+                    description = "Invalid input data (validation errors on request body)"
             ),
             @ApiResponse(
                     responseCode = "500",
-                    description = "Internal server error"
+                    description = "Internal server error (e.g., failed to send email)"
             )
     })
     public ResponseEntity<GenericResponse> submitContactForm(
@@ -64,15 +61,15 @@ public class ContactController {
     ) {
         log.info("Received contact form submission from: {}, subject: {}", request.getEmail(), request.getSubject());
         
-        GenericResponse response = emailService.processContactForm(
+        emailService.sendContactFormEmail(
                 request.getEmail(),
                 request.getSubject(),
                 request.getMessage()
         );
         
-        log.info("Contact form processed successfully from: {}", request.getEmail());
+        log.info("Contact form submitted for processing from: {}", request.getEmail());
         
-        return ResponseEntity.status(response.getStatus())
-                .body(response);
+        return ResponseEntity.ok(ResponseBuilder.success(
+                "Thank you for your message. We will get back to you soon."));
     }
 } 

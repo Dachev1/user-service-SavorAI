@@ -7,11 +7,12 @@ import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.security.UserPrincipal;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.Date;
 import java.util.UUID;
 
@@ -20,38 +21,56 @@ import java.util.UUID;
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class TokenService {
+
+    private static final String USER_INVALIDATION_KEY_PREFIX = "user_tokens_invalidated:";
+    // TODO: Externalize this duration via configuration (e.g., JwtConfig or application.properties)
+    private static final Duration USER_INVALIDATION_DURATION = Duration.ofDays(30);
 
     private final JwtConfig jwtConfig;
     private final TokenBlacklistService tokenBlacklistService;
-
-    @Autowired
-    public TokenService(JwtConfig jwtConfig, TokenBlacklistService tokenBlacklistService) {
-        this.jwtConfig = jwtConfig;
-        this.tokenBlacklistService = tokenBlacklistService;
-    }
 
     /**
      * Generates a JWT token for a user
      */
     public String generateToken(UserDetails userDetails) {
-        return jwtConfig.generateToken(userDetails);
+        if (userDetails == null) {
+            // Log warning and return empty token for safety
+            log.warn("Attempted to generate token for null UserDetails");
+            return "";
+        }
+
+        try {
+            String token = jwtConfig.generateToken(userDetails);
+            // Ensure token is never null, even if the JWT config fails
+            return token != null ? token : "";
+        } catch (Exception e) {
+            // Log the exception and return empty token for safety
+            log.error("Error generating token: {}", e.getMessage(), e);
+            return "";
+        }
     }
 
     /**
-     * Validates a JWT token
+     * Validates a JWT token (signature, expiration, blacklist, user invalidation).
+     * Propagates exceptions from underlying checks if they occur.
      */
     public boolean validateToken(String token, UserDetails userDetails) {
         String jwtToken = extractJwtToken(token);
 
-        if (isTokenBlacklisted(jwtToken)) {
+        // Use new blacklist service method
+        if (tokenBlacklistService.isJwtBlacklisted(jwtToken)) {
+            log.debug("Token validation failed: Token is blacklisted");
             return false;
         }
 
+        // Check user-specific invalidation
         if (userDetails instanceof UserPrincipal userPrincipal) {
             User user = userPrincipal.user();
-            String userInvalidationKey = "user_tokens_invalidated:" + user.getId().toString();
-            if (tokenBlacklistService.isBlacklisted(userInvalidationKey)) {
+            // Use new blacklist service method for user invalidation check
+            if (tokenBlacklistService.isUserInvalidated(user.getId().toString())) {
+                log.debug("Token validation failed: User {} tokens invalidated", user.getId());
                 return false;
             }
         }
@@ -101,34 +120,48 @@ public class TokenService {
     }
 
     /**
-     * Blacklists a token
+     * Blacklists a JWT token until its expiry.
+     * Delegates to TokenBlacklistService.
+     * Throws IllegalArgumentException if token is null/empty.
+     * Propagates exceptions from claim extraction or blacklist service.
      */
-    public boolean blacklistToken(String token) {
-        try {
-            String jwtToken = extractJwtToken(token);
-            if (jwtToken == null) {
-                log.warn("Cannot blacklist null token");
-                return false;
-            }
-
-            Date expirationDate = extractExpiration(jwtToken);
-            tokenBlacklistService.blacklistToken(jwtToken, expirationDate.getTime());
-            log.info("Token blacklisted successfully");
-            return true;
-        } catch (InvalidTokenException e) {
-            log.error("Failed to blacklist invalid token: {}", e.getMessage());
-            return false;
-        } catch (Exception e) {
-            log.error("Failed to blacklist token: {}", e.getMessage());
-            return false;
+    public void blacklistToken(String token) {
+        if (token == null || token.isEmpty()) {
+            throw new IllegalArgumentException("Cannot blacklist null or empty token");
         }
+
+        String jwtToken = extractJwtToken(token);
+        Date expirationDate = extractExpiration(jwtToken); // Might throw InvalidTokenException
+        long expiryMillis = (expirationDate != null) ? expirationDate.getTime() : 0;
+
+        // Delegate to the correct method in TokenBlacklistService
+        tokenBlacklistService.blacklistJwt(jwtToken, expiryMillis);
     }
 
     /**
-     * Checks if a token is blacklisted
+     * Checks if a specific JWT is blacklisted.
+     * Delegates to TokenBlacklistService.
+     * Returns false if token is null/empty.
      */
-    public boolean isTokenBlacklisted(String token) {
-        return tokenBlacklistService.isBlacklisted(extractJwtToken(token));
+    public boolean isJwtBlacklisted(String token) {
+        if (token == null || token.isEmpty()) {
+            return false;
+        }
+        String jwtToken = extractJwtToken(token);
+        // Delegate to the correct method in TokenBlacklistService
+        return tokenBlacklistService.isJwtBlacklisted(jwtToken);
+    }
+
+    /**
+     * Checks if a user's tokens have been globally invalidated.
+     * Delegates to TokenBlacklistService.
+     */
+    public boolean isUserInvalidated(UUID userId) {
+        if (userId == null) {
+            return false;
+        }
+        // Delegate to the correct method in TokenBlacklistService
+        return tokenBlacklistService.isUserInvalidated(userId.toString());
     }
 
     /**
@@ -138,66 +171,78 @@ public class TokenService {
         try {
             String jwtToken = extractJwtToken(token);
 
-            if (isTokenBlacklisted(jwtToken)) {
+            // Use renamed local method which calls new blacklist service method
+            if (isJwtBlacklisted(jwtToken)) {
                 throw new AuthenticationException("Token is blacklisted or has been logged out");
             }
 
-            UUID userId = extractUserId(jwtToken);
+            // Check user invalidation status
+            UUID userId = extractUserId(jwtToken); // Extract user ID first
+            if (tokenBlacklistService.isUserInvalidated(userId.toString())) {
+                log.warn("Token refresh attempt for invalidated user: {}", userId);
+                throw new AuthenticationException("User session invalidated, please log in again.");
+            }
 
+            // Proceed with user details check
             if (userDetails instanceof UserPrincipal userPrincipal) {
                 User user = userPrincipal.user();
 
                 if (user.isBanned()) {
-                    blacklistToken(jwtToken);
+                    // Blacklist the current token if user is banned
+                    Date expiry = extractExpiration(jwtToken);
+                    if (expiry != null) blacklistToken(jwtToken);
                     throw new AuthenticationException("User is banned");
                 }
 
                 if (user.getId().equals(userId)) {
-                    blacklistToken(jwtToken);
+                    // Blacklist the old token before issuing a new one
+                    Date expiry = extractExpiration(jwtToken);
+                    if (expiry != null) blacklistToken(jwtToken); // Use new method
+                    // Generate new token
                     return generateToken(userDetails);
                 } else {
-                    throw new AuthenticationException("Invalid token refresh attempt");
+                    // Token user ID does not match principal user ID
+                    throw new AuthenticationException("Invalid token refresh attempt: User mismatch");
                 }
             } else {
-                throw new AuthenticationException("Invalid user principal");
+                throw new AuthenticationException("Invalid user principal type for token refresh");
             }
         } catch (ExpiredJwtException e) {
-            throw new AuthenticationException("Expired token", e);
-        } catch (JwtException e) {
+            // Allow refresh even if expired? Depends on policy. Current logic requires non-expired.
+            // If refresh allowed for expired tokens, this check needs adjustment.
+            throw new AuthenticationException("Expired token, cannot refresh", e);
+        } catch (InvalidTokenException | JwtException e) {
             throw new AuthenticationException("Invalid token", e);
         } catch (AuthenticationException e) {
-            throw e;
+            throw e; // Re-throw specific auth exceptions
         } catch (Exception e) {
-            throw new AuthenticationException("Token refresh failed", e);
+            // Catch-all for unexpected errors
+            log.error("Unexpected error during token refresh: {}", e.getMessage(), e);
+            throw new AuthenticationException("Token refresh failed due to an unexpected error", e);
         }
     }
 
     /**
-     * Invalidates all tokens for a specific user
+     * Invalidates all tokens for a specific user by signaling the TokenBlacklistService.
      */
-    public void invalidateUserTokens(UUID userId) {
+    public void invalidateUserTokens(UUID userId) { // Signature kept as UUID
         if (userId == null) {
-            log.warn("Attempted to invalidate tokens for null user ID");
-            return;
+            throw new IllegalArgumentException("User ID cannot be null for invalidating tokens");
         }
-
         try {
-            String userSpecificToken = "user_tokens_invalidated:" + userId.toString();
-            // 30 days expiry for user token invalidation
-            long expiryTime = System.currentTimeMillis() + (30L * 24 * 60 * 60 * 1000);
-            tokenBlacklistService.blacklistToken(userSpecificToken, expiryTime);
+            // Delegate to TokenBlacklistService, converting UUID to String
+            tokenBlacklistService.invalidateUserTokens(userId.toString());
         } catch (Exception e) {
-            log.error("Error invalidating tokens for user {}: {}", userId, e.getMessage());
+            log.error("Error signaling token invalidation for user {}: {}", userId, e.getMessage(), e);
+            // Optionally re-throw as a different exception type?
+            throw new RuntimeException("Failed to signal token invalidation for user " + userId, e);
         }
     }
-    
+
     /**
      * Extracts JWT token without the Bearer prefix
      */
     private String extractJwtToken(String token) {
-        if (token != null && token.startsWith("Bearer ")) {
-            return token.substring(7);
-        }
-        return token;
+        return token != null && token.startsWith("Bearer ") ? token.substring(7) : token;
     }
 } 

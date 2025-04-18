@@ -17,7 +17,6 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @Schema(description = "Authentication response with JWT token and user information")
 public class AuthResponse {
-    @NotBlank(message = "Token cannot be empty")
     @Schema(description = "JWT token for authentication", example = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...")
     private String token;
 
@@ -34,8 +33,8 @@ public class AuthResponse {
     @Schema(description = "User role", example = "USER")
     private String role;
 
-    @Schema(description = "Whether the user's email is verified", example = "true")
-    private boolean verified;
+    @Schema(description = "Whether the user account is enabled (email verified)", example = "true")
+    private boolean enabled;
 
     @Schema(description = "Whether email verification is pending", example = "false")
     private boolean verificationPending;
@@ -63,17 +62,28 @@ public class AuthResponse {
      * @param user  User response object
      */
     public AuthResponse(String token, UserResponse user) {
-        this.token = token;
+        // Ensure token is never null
+        this.token = token != null ? token : "";
         this.user = user;
+        
         if (user != null) {
             this.username = user.getUsername();
             this.email = user.getEmail();
             this.role = user.getRole();
-            this.verified = user.isVerified();
+            this.enabled = user.isEnabled();
             this.verificationPending = user.isVerificationPending();
             this.banned = user.isBanned();
             this.lastLogin = user.getLastLogin();
+        } else {
+            // Set default values when user is null to avoid NPEs
+            this.username = "";
+            this.email = "";
+            this.role = "";
+            this.enabled = false;
+            this.verificationPending = false;
+            this.banned = false;
         }
+        
         this.success = true;
         this.message = "Token refreshed successfully";
     }

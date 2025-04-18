@@ -87,11 +87,18 @@ public class JwtConfig {
             final Claims claims = extractAllClaims(token);
             String userIdStr = claims.get("userId", String.class);
             if (userIdStr == null) {
-                throw new JwtException("User ID claim is missing from the token");
+                log.warn("User ID claim (userId) is missing from token");
+                throw new JwtException("Missing required claim: userId"); 
             }
             return UUID.fromString(userIdStr);
         } catch (IllegalArgumentException e) {
-            throw new JwtException("Invalid User ID format in the token", e);
+            log.warn("Invalid User ID format in token claim: {}", e.getMessage());
+            throw new JwtException("Invalid format for claim: userId", e);
+        } catch (JwtException e) {
+             throw e;
+        } catch (Exception e) {
+             log.error("Unexpected error extracting userId claim: {}", e.getMessage(), e);
+             throw new JwtException("Failed to extract userId claim due to unexpected error", e);
         }
     }
 

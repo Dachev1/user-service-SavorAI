@@ -1,49 +1,43 @@
 package dev.idachev.userservice.service;
 
+import dev.idachev.userservice.config.EmailProperties;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.exception.VerificationException;
 import dev.idachev.userservice.mapper.DtoMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
-import dev.idachev.userservice.util.ResponseBuilder;
 import dev.idachev.userservice.web.dto.AuthResponse;
-import dev.idachev.userservice.web.dto.GenericResponse;
-import dev.idachev.userservice.web.dto.VerificationResponse;
-import dev.idachev.userservice.web.dto.VerificationResult;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.servlet.view.RedirectView;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Service responsible for email verification operations
  */
 @Service
 @Slf4j
+@RequiredArgsConstructor
 public class VerificationService {
 
     private final UserRepository userRepository;
     private final EmailService emailService;
     private final TokenService tokenService;
+    private final EmailProperties emailProperties;
 
-    @Autowired
-    public VerificationService(UserRepository userRepository,
-                              EmailService emailService,
-                              TokenService tokenService) {
-        this.userRepository = userRepository;
-        this.emailService = emailService;
-        this.tokenService = tokenService;
+    /**
+     * Generates a new random verification token.
+     */
+    public String generateVerificationToken() {
+        return UUID.randomUUID().toString();
     }
 
     /**
-     * Gets verification status for a user
+     * Gets verification status for a user.
+     * Returns AuthResponse containing user details and a JWT if verified.
      */
     @Transactional(readOnly = true)
     public AuthResponse getVerificationStatus(String identifier) {
@@ -53,128 +47,98 @@ public class VerificationService {
         if (user.isEnabled()) {
             UserPrincipal userPrincipal = new UserPrincipal(user);
             token = tokenService.generateToken(userPrincipal);
+            log.debug("User {} is verified, generated token for status check.", identifier);
+        } else {
+            log.debug("User {} is not verified.", identifier);
         }
 
         return DtoMapper.mapToAuthResponse(user, token);
     }
 
     /**
-     * Verifies email token
+     * Verifies an email using the provided token.
+     * Enables the user account and clears the verification token upon success.
+     * Returns void.
+     * Throws VerificationException if token is invalid, blank, or user already verified.
+     * Throws ResourceNotFoundException if token does not match any user.
      */
     @Transactional
-    public boolean verifyEmail(String token) {
-        if (token == null || token.isEmpty()) {
-            throw new VerificationException("Verification token cannot be empty");
+    public void verifyEmail(String token) {
+        if (token == null || token.isBlank()) {
+            throw new VerificationException("Verification token cannot be blank");
         }
-        
-        return Optional.of(token)
-                .flatMap(userRepository::findByVerificationToken)
-                .map(user -> {
-                    if (user.isEnabled()) {
-                        log.info("User already verified: {}", user.getEmail());
-                        return true;
-                    }
 
-                    user.setEnabled(true);
-                    user.setVerificationToken(null);
-                    user.setUpdatedOn(LocalDateTime.now());
-                    userRepository.save(user);
-
-                    log.info("Email verified for user: {}", user.getEmail());
-                    return true;
-                })
+        log.debug("Attempting to verify email with token: {}", token);
+        User user = userRepository.findByVerificationToken(token)
                 .orElseThrow(() -> {
-                    log.warn("No user found with verification token: {}", token);
-                    return new VerificationException("Invalid verification token");
+                    log.warn("Invalid verification token used: {}", token);
+                    return new ResourceNotFoundException("Invalid or expired verification token.");
                 });
-    }
 
-    /**
-     * Verifies a user's email and returns detailed response
-     */
-    @Transactional
-    public VerificationResponse verifyEmailAndGetResponse(String token) {
-        try {
-            verifyEmail(token);
-            return DtoMapper.mapToVerificationResponse(
-                    null, true, "Your email has been verified successfully. You can now sign in to your account.");
-        } catch (VerificationException e) {
-            return DtoMapper.mapToVerificationResponse(null, false, e.getMessage());
-        } catch (Exception e) {
-            log.error("Unexpected error during verification: {}", e.getMessage(), e);
-            return DtoMapper.mapToVerificationResponse(null, false, "Verification failed: " + e.getMessage());
+        if (user.isEnabled()) {
+            log.warn("Attempted to verify already verified user: {}", user.getEmail());
+            throw new VerificationException("Account is already verified.");
         }
+
+        user.enableAccount();
+        userRepository.save(user);
+
+        log.info("Email verified successfully for user: {}", user.getEmail());
     }
 
     /**
-     * Resends verification email for a user
+     * Resends the verification email for a user identified by email.
+     * Generates a new token if needed.
+     * Returns void.
+     * Throws VerificationException if the account is already verified.
+     * Throws ResourceNotFoundException if the email does not match any user.
+     * Propagates EmailSendException if sending fails.
      */
     @Transactional
-    public GenericResponse resendVerificationEmail(String email) {
+    public void resendVerificationEmail(String email) {
         User user = findUserByEmail(email);
 
         if (user.isEnabled()) {
             log.warn("Cannot resend verification email - user is already verified: {}", email);
-            return ResponseBuilder.error("This account is already verified. You can sign in now.");
+            throw new VerificationException("This account is already verified. You can sign in now.");
         }
 
-        if (user.getVerificationToken() == null || user.getVerificationToken().isEmpty()) {
-            user.setVerificationToken(emailService.generateVerificationToken());
-            user.setUpdatedOn(LocalDateTime.now());
+        String token = user.getVerificationToken();
+        if (token == null || token.isBlank()) {
+            log.info("User {} had no verification token, generating a new one for resend.", email);
+            token = generateVerificationToken();
+            user.updateVerificationToken(token);
             user = userRepository.save(user);
         }
 
-        emailService.sendVerificationEmailAsync(user);
+        String verificationUrl = buildVerificationUrl(token);
+
+        emailService.sendVerificationEmail(user, verificationUrl);
         log.info("Verification email resent to: {}", email);
-
-        return ResponseBuilder.success("Verification email has been resent. Please check your inbox.");
     }
 
     /**
-     * Verifies email token and returns a result object suitable for redirect flow
-     */
-    @Transactional
-    public VerificationResult verifyEmailForRedirect(String token) {
-        try {
-            verifyEmail(token);
-            return VerificationResult.success();
-        } catch (VerificationException e) {
-            return VerificationResult.failure(e.getMessage());
-        } catch (Exception e) {
-            log.error("Error in verifyEmailForRedirect: {}", e.getMessage(), e);
-            return VerificationResult.failure(e.getClass().getSimpleName());
-        }
-    }
-
-    /**
-     * Handles email verification redirect logic with error handling
-     */
-    public RedirectView handleEmailVerificationRedirect(String token, String redirectBaseUrl) {
-        if (token == null || token.trim().isEmpty()) {
-            String message = URLEncoder.encode("Invalid or missing verification token", StandardCharsets.UTF_8);
-            return new RedirectView(redirectBaseUrl + "?verified=false&message=" + message);
-        }
-
-        try {
-            VerificationResponse response = verifyEmailAndGetResponse(token);
-            String message = URLEncoder.encode(response.getMessage(), StandardCharsets.UTF_8);
-            return new RedirectView(
-                    redirectBaseUrl + "?verified=" + response.isSuccess() + "&message=" + message);
-        } catch (Exception e) {
-            log.error("Error in email verification redirect handling: {}", e.getMessage(), e);
-            String message = URLEncoder.encode("Verification failed: " + e.getMessage(), StandardCharsets.UTF_8);
-            return new RedirectView(redirectBaseUrl + "?verified=false&message=" + message);
-        }
-    }
-
-    /**
-     * Find user by email
+     * Finds a user by email.
+     * Throws ResourceNotFoundException if user not found.
      */
     private User findUserByEmail(String email) {
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> {
                     log.warn("User not found with email: {}", email);
-                    return new ResourceNotFoundException("User not found with email: " + email);
+                    return new ResourceNotFoundException("No account found with email: " + email);
                 });
+    }
+
+    /**
+     * Builds the full verification URL.
+     * Public to be callable from other services (e.g., AuthenticationService).
+     * TODO: Enhance with ServletUriComponentsBuilder if needed.
+     */
+    public String buildVerificationUrl(String token) {
+        String baseUrl = emailProperties.getServiceBaseUrl();
+        if (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        return baseUrl + "/api/v1/verification/verify/" + token;
     }
 } 
