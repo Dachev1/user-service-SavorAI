@@ -19,6 +19,8 @@ import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +47,7 @@ public class AuthenticationService {
     private final EmailService emailService;
     private final UserService userService;
     private final VerificationService verificationService;
+    private final UserDetailsService userDetailsService;
 
     /**
      * Registers a new user and initiates email verification.
@@ -82,6 +85,18 @@ public class AuthenticationService {
     @Transactional
     public AuthResponse signIn(SignInRequest request) {
         User user = findUserByIdentifier(request.identifier());
+
+        log.info("signIn: Attempting login for user: {}", user.getUsername());
+        log.info("signIn: User enabled status: {}", user.isEnabled());
+        log.info("signIn: Provided password: {}", request.password());
+        try {
+            UserDetails userDetails = userDetailsService.loadUserByUsername(user.getUsername());
+            log.info("signIn: Password from UserDetails: {}", userDetails.getPassword());
+            boolean manualMatch = passwordEncoder.matches(request.password(), userDetails.getPassword());
+            log.info("signIn: Manual password check inside signIn: {}", manualMatch);
+        } catch (Exception e) {
+            log.error("signIn: Error during manual check: {}", e.getMessage());
+        }
 
         if (!user.isEnabled()) {
             throw new AccountVerificationException("Account not verified. Please check your email.");
@@ -129,25 +144,35 @@ public class AuthenticationService {
     public void logout(String authHeader) {
         String token = extractTokenFromHeader(authHeader);
 
-        if (token == null) {
-            log.warn("Logout attempt with missing token.");
+        if (token == null || token.isBlank()) {
+            log.warn("Logout attempt with missing or blank token.");
             throw new AuthenticationException("Logout requires a valid token.");
         }
 
         UUID userId = null;
-        long expiryMillis = 0;
+        Date expiryDate = null;
         try {
             userId = tokenService.extractUserId(token);
-            Date expiryDate = tokenService.extractExpiration(token);
-            expiryMillis = (expiryDate != null) ? expiryDate.getTime() : 0;
+            expiryDate = tokenService.extractExpiration(token);
         } catch (JwtException e) {
             log.warn("Could not extract info from token during logout (possibly invalid/expired): {}", e.getMessage());
+            if (expiryDate == null) {
+                expiryDate = new Date();
+                log.debug("Using current time as fallback expiry for blacklisting token: {}", token);
+            }
         } catch (Exception e) {
             log.error("Unexpected error extracting token info during logout: {}", e.getMessage(), e);
+            if (expiryDate == null) {
+                expiryDate = new Date();
+            }
         }
 
         try {
-            tokenService.blacklistToken(token);
+            if (expiryDate == null) {
+                expiryDate = new Date();
+                log.warn("Expiry date was unexpectedly null before blacklisting, using current time for token: {}", token);
+            }
+            tokenService.blacklistToken(token, expiryDate);
         } catch (Exception e) {
             log.error("Failed to blacklist token {} during logout: {}", token, e.getMessage(), e);
         }
@@ -184,11 +209,15 @@ public class AuthenticationService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found for token"));
 
-        if (tokenService.isJwtBlacklisted(token) || tokenService.isUserInvalidated(userId)) {
+        if (tokenService.isUserInvalidated(userId)) {
             throw new AuthenticationException("Token has been invalidated");
         }
 
-        tokenService.blacklistToken(token);
+        try {
+            tokenService.blacklistToken(token, expiry);
+        } catch (Exception e) {
+            log.error("Failed to blacklist token {} during logout: {}", token, e.getMessage(), e);
+        }
 
         String newToken = tokenService.generateToken(new UserPrincipal(user));
 
@@ -202,9 +231,10 @@ public class AuthenticationService {
      */
     @Transactional
     public void changeUsername(String currentUsername, String newUsername, String password) {
+        // --- Input Validations First ---
         if (currentUsername == null || newUsername == null || password == null ||
-                newUsername.isBlank() || password.isBlank()) {
-            throw new IllegalArgumentException("Current username, new username, and password are required");
+                currentUsername.isBlank() || newUsername.isBlank() || password.isBlank()) {
+            throw new IllegalArgumentException("Current username, new username, and password cannot be blank");
         }
 
         if (!newUsername.matches(USERNAME_REGEX)) {
@@ -212,18 +242,23 @@ public class AuthenticationService {
                     "Username must be 3-50 characters and contain only letters, numbers, dots, underscores, and hyphens");
         }
 
-        User user = userRepository.findByUsername(currentUsername)
-                .orElseThrow(() -> new UserNotFoundException("User not found"));
-
         if (currentUsername.equals(newUsername)) {
             log.info("Username change requested for user {} but new username is the same.", currentUsername);
-            return;
+            // Optionally throw an exception or return a specific response if needed
+            return; // No change needed
         }
+        // --- End Input Validations ---
+
+
+        // --- Logic requiring user data ---
+        User user = userRepository.findByUsername(currentUsername)
+                .orElseThrow(() -> new UserNotFoundException("User not found with username: " + currentUsername));
 
         if (!passwordEncoder.matches(password, user.getPassword())) {
             throw new AuthenticationException("Current password is incorrect");
         }
 
+        // Check for new username availability *after* validating password to avoid information leakage
         if (userRepository.existsByUsername(newUsername)) {
             throw new DuplicateUserException("Username already exists");
         }

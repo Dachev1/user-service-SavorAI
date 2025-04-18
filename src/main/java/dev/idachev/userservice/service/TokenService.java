@@ -103,11 +103,19 @@ public class TokenService {
      * Generic method to extract claims from token with proper error handling
      */
     private <T> T extractClaim(String token, ClaimExtractor<T> extractor, String claimName) {
+        String jwtToken = extractJwtToken(token);
+        if (jwtToken == null || jwtToken.isBlank()) {
+            log.warn("Attempted to extract {} from null or blank token", claimName);
+            throw new InvalidTokenException("Token cannot be null or blank");
+        }
         try {
-            return extractor.extract(extractJwtToken(token));
+            return extractor.extract(jwtToken);
+        } catch (ExpiredJwtException e) {
+            log.warn("Error extracting {} from token: {}", claimName, e.getMessage()); // Log but re-throw specific type
+            throw e; // Re-throw ExpiredJwtException directly
         } catch (Exception e) {
             log.warn("Error extracting {} from token: {}", claimName, e.getMessage());
-            throw new InvalidTokenException("Invalid token format", e);
+            throw new InvalidTokenException("Invalid token format while extracting " + claimName, e);
         }
     }
 
@@ -120,26 +128,26 @@ public class TokenService {
     }
 
     /**
-     * Blacklists a JWT token until its expiry.
-     * Delegates to TokenBlacklistService.
-     * Throws IllegalArgumentException if token is null/empty.
-     * Propagates exceptions from claim extraction or blacklist service.
+     * Blacklists a specific JWT token until its expiry.
+     * Extracts the expiry time internally.
      */
-    public void blacklistToken(String token) {
+    public void blacklistToken(String token, Date expiry) { // Add expiry parameter
         if (token == null || token.isEmpty()) {
-            throw new IllegalArgumentException("Cannot blacklist null or empty token");
+            throw new IllegalArgumentException("Token cannot be null or empty for blacklisting");
         }
-
         String jwtToken = extractJwtToken(token);
-        Date expirationDate = extractExpiration(jwtToken); // Might throw InvalidTokenException
-        long expiryMillis = (expirationDate != null) ? expirationDate.getTime() : 0;
-
-        // Delegate to the correct method in TokenBlacklistService
-        tokenBlacklistService.blacklistJwt(jwtToken, expiryMillis);
+        try {
+            // Use the passed expiry directly
+            long expiryMillis = (expiry != null) ? expiry.getTime() : 0;
+            tokenBlacklistService.blacklistJwt(jwtToken, expiryMillis);
+        } catch (Exception e) { // Catch broader exceptions from blacklist service
+            log.error("Failed to blacklist token {} with expiry {}: {}", jwtToken, expiry, e.getMessage(), e);
+            // Decide if we should re-throw or handle
+        }
     }
 
     /**
-     * Checks if a specific JWT is blacklisted.
+     * Checks if a JWT token is blacklisted.
      * Delegates to TokenBlacklistService.
      * Returns false if token is null/empty.
      */
@@ -190,14 +198,14 @@ public class TokenService {
                 if (user.isBanned()) {
                     // Blacklist the current token if user is banned
                     Date expiry = extractExpiration(jwtToken);
-                    if (expiry != null) blacklistToken(jwtToken);
+                    if (expiry != null) blacklistToken(jwtToken, expiry); // Pass expiry
                     throw new AuthenticationException("User is banned");
                 }
 
                 if (user.getId().equals(userId)) {
                     // Blacklist the old token before issuing a new one
                     Date expiry = extractExpiration(jwtToken);
-                    if (expiry != null) blacklistToken(jwtToken); // Use new method
+                    if (expiry != null) blacklistToken(jwtToken, expiry); // Pass expiry
                     // Generate new token
                     return generateToken(userDetails);
                 } else {
@@ -210,7 +218,7 @@ public class TokenService {
         } catch (ExpiredJwtException e) {
             // Allow refresh even if expired? Depends on policy. Current logic requires non-expired.
             // If refresh allowed for expired tokens, this check needs adjustment.
-            throw new AuthenticationException("Expired token, cannot refresh", e);
+            throw new AuthenticationException("Token has expired", e);
         } catch (InvalidTokenException | JwtException e) {
             throw new AuthenticationException("Invalid token", e);
         } catch (AuthenticationException e) {

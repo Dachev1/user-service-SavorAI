@@ -1,227 +1,351 @@
 package dev.idachev.userservice.service;
 
+import dev.idachev.userservice.config.EmailProperties;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
 import dev.idachev.userservice.exception.VerificationException;
-import dev.idachev.userservice.model.Role;
+import dev.idachev.userservice.mapper.DtoMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.web.dto.AuthResponse;
-import dev.idachev.userservice.web.dto.GenericResponse;
-import dev.idachev.userservice.web.dto.VerificationResponse;
-import dev.idachev.userservice.web.dto.VerificationResult;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.web.servlet.view.RedirectView;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
-import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("VerificationService Tests")
+@MockitoSettings(strictness = Strictness.LENIENT)
 class VerificationServiceUTest {
 
     @Mock
     private UserRepository userRepository;
-
     @Mock
     private EmailService emailService;
-
     @Mock
     private TokenService tokenService;
+    @Mock
+    private EmailProperties emailProperties;
 
-    @Captor
-    private ArgumentCaptor<User> userCaptor;
-
+    @InjectMocks
     private VerificationService verificationService;
 
-    private User testUser;
-    private String verificationToken;
+    private MockedStatic<DtoMapper> dtoMapperMockedStatic;
 
     @BeforeEach
     void setUp() {
-        verificationService = new VerificationService(userRepository, emailService, tokenService);
+        dtoMapperMockedStatic = Mockito.mockStatic(DtoMapper.class);
+    }
 
-        verificationToken = UUID.randomUUID().toString();
-        testUser = User.builder()
-                .id(UUID.randomUUID())
-                .username("testuser")
-                .email("test@example.com")
-                .password("encodedPassword")
-                .role(Role.USER)
-                .enabled(false)
-                .verificationToken(verificationToken)
-                .createdOn(LocalDateTime.now())
-                .build();
+    @AfterEach
+    void tearDown() {
+        dtoMapperMockedStatic.close();
     }
 
     @Test
-    @DisplayName("Should return verification status for unverified user")
-    void should_ReturnVerificationStatus_ForUnverifiedUser() {
-        // Given
-        when(userRepository.findByEmail(testUser.getEmail())).thenReturn(Optional.of(testUser));
-        
-        // When
-        AuthResponse response = verificationService.getVerificationStatus(testUser.getEmail());
-        
-        // Then
-        assertThat(response).isNotNull();
-        assertThat(response.getToken()).isEmpty();
-        assertThat(response.getUser().isVerified()).isFalse();
-        verify(tokenService, never()).generateToken(any(UserPrincipal.class));
+    @DisplayName("generateVerificationToken should return a non-blank UUID string")
+    void generateVerificationToken_shouldReturnUUIDString() {
+        String token = verificationService.generateVerificationToken();
+        assertThat(token).isNotBlank();
+        // Basic check if it looks like a UUID
+        assertThatCode(() -> UUID.fromString(token)).doesNotThrowAnyException();
     }
 
     @Test
-    @DisplayName("Should return verification status with token for verified user")
-    void should_ReturnVerificationStatusWithToken_ForVerifiedUser() {
+    @DisplayName("buildVerificationUrl should construct URL correctly")
+    void buildVerificationUrl_shouldConstructUrl() {
         // Given
-        testUser.setEnabled(true);
-        String authToken = "valid.jwt.token";
-        
-        when(userRepository.findByEmail(testUser.getEmail())).thenReturn(Optional.of(testUser));
-        when(tokenService.generateToken(any(UserPrincipal.class))).thenReturn(authToken);
-        
-        // When
-        AuthResponse response = verificationService.getVerificationStatus(testUser.getEmail());
-        
-        // Then
-        assertThat(response).isNotNull();
-        assertThat(response.getToken()).isEqualTo(authToken);
-        assertThat(response.getUser().isVerified()).isTrue();
-        verify(tokenService).generateToken(any(UserPrincipal.class));
+        String token = "test-token";
+        String baseUrl = "http://localhost:8080";
+        String baseUrlWithSlash = "http://localhost:8080/";
+        String expectedUrl = baseUrl + "/api/v1/verification/verify/" + token;
+
+        when(emailProperties.getServiceBaseUrl()).thenReturn(baseUrl);
+        assertThat(verificationService.buildVerificationUrl(token)).isEqualTo(expectedUrl);
+
+        reset(emailProperties);
+        when(emailProperties.getServiceBaseUrl()).thenReturn(baseUrlWithSlash);
+        assertThat(verificationService.buildVerificationUrl(token)).isEqualTo(expectedUrl);
     }
 
-    @Test
-    @DisplayName("Should throw ResourceNotFoundException when user email doesn't exist")
-    void should_ThrowResourceNotFoundException_WhenUserEmailDoesntExist() {
-        // Given
-        String nonExistentEmail = "nonexistent@example.com";
-        when(userRepository.findByEmail(nonExistentEmail)).thenReturn(Optional.empty());
-        
-        // When/Then
-        assertThatThrownBy(() -> verificationService.getVerificationStatus(nonExistentEmail))
+    @Nested
+    @DisplayName("getVerificationStatus Tests")
+    class GetVerificationStatusTests {
+        @Test
+        @DisplayName("Should return AuthResponse with token if user is verified")
+        void getVerificationStatus_whenUserVerified_shouldReturnAuthResponseWithToken() {
+            // Given
+            String email = "verified@test.com";
+            // Ensure the mock user has a username, as UserPrincipal needs it
+            User verifiedUser = User.builder()
+                                .id(UUID.randomUUID())
+                                .email(email)
+                                .username("verifiedUser")
+                                .enabled(true)
+                                .build();
+            String generatedToken = "jwt.token";
+            AuthResponse expectedResponse = AuthResponse.builder().token(generatedToken).build(); // Simplified
+
+            when(userRepository.findByEmail(email)).thenReturn(Optional.of(verifiedUser));
+            when(tokenService.generateToken(any(UserPrincipal.class))).thenReturn(generatedToken);
+            dtoMapperMockedStatic.when(() -> DtoMapper.mapToAuthResponse(verifiedUser, generatedToken)).thenReturn(expectedResponse);
+
+            // When
+            AuthResponse actualResponse = verificationService.getVerificationStatus(email);
+
+            // Then
+            assertThat(actualResponse).isEqualTo(expectedResponse);
+            verify(userRepository).findByEmail(email);
+            verify(tokenService).generateToken(argThat(p -> p.getUsername().equals(verifiedUser.getUsername())));
+            dtoMapperMockedStatic.verify(() -> DtoMapper.mapToAuthResponse(verifiedUser, generatedToken));
+        }
+
+        @Test
+        @DisplayName("Should return AuthResponse without token if user is not verified")
+        void getVerificationStatus_whenUserNotVerified_shouldReturnAuthResponseWithoutToken() {
+             // Given
+            String email = "unverified@test.com";
+            User unverifiedUser = User.builder().id(UUID.randomUUID()).email(email).enabled(false).build();
+            AuthResponse expectedResponse = AuthResponse.builder().token("").build(); // Simplified
+
+            when(userRepository.findByEmail(email)).thenReturn(Optional.of(unverifiedUser));
+            // generateToken should not be called
+            dtoMapperMockedStatic.when(() -> DtoMapper.mapToAuthResponse(unverifiedUser, "")).thenReturn(expectedResponse);
+
+            // When
+            AuthResponse actualResponse = verificationService.getVerificationStatus(email);
+
+            // Then
+             assertThat(actualResponse).isEqualTo(expectedResponse);
+            verify(userRepository).findByEmail(email);
+            verify(tokenService, never()).generateToken(any());
+            dtoMapperMockedStatic.verify(() -> DtoMapper.mapToAuthResponse(unverifiedUser, ""));
+        }
+
+        @Test
+        @DisplayName("Should throw ResourceNotFoundException if user email not found")
+        void getVerificationStatus_whenUserNotFound_shouldThrowResourceNotFoundException() {
+            // Given
+            String email = "notfound@test.com";
+            when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+            // When & Then
+            assertThatThrownBy(() -> verificationService.getVerificationStatus(email))
                 .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("User not found");
+                .hasMessageContaining(email);
+
+            verify(userRepository).findByEmail(email);
+             verifyNoInteractions(tokenService);
+             dtoMapperMockedStatic.verify(() -> DtoMapper.mapToAuthResponse(any(), any()), never());
+        }
     }
 
-    @Test
-    @DisplayName("Should verify email successfully when valid token is provided")
-    void should_VerifyEmail_WhenValidTokenIsProvided() {
-        // Given
-        when(userRepository.findByVerificationToken(verificationToken)).thenReturn(Optional.of(testUser));
-        
-        // When
-        boolean result = verificationService.verifyEmail(verificationToken);
-        
-        // Then
-        verify(userRepository).save(userCaptor.capture());
-        User savedUser = userCaptor.getValue();
-        
-        assertThat(result).isTrue();
-        assertThat(savedUser.isEnabled()).isTrue();
-        assertThat(savedUser.getVerificationToken()).isNull();
-        assertThat(savedUser.getUpdatedOn()).isNotNull();
-    }
+    @Nested
+    @DisplayName("verifyEmail Tests")
+    class VerifyEmailTests {
+        @Test
+        @DisplayName("Should enable user and clear token when token is valid and user not enabled")
+        void verifyEmail_withValidTokenAndUserNotEnabled_shouldEnableUser() {
+            // Given
+            String token = "valid-token";
+            User user = User.builder()
+                        .id(UUID.randomUUID())
+                        .username("toVerify")
+                        .enabled(false)
+                        .verificationToken(token)
+                        .build();
 
-    @Test
-    @DisplayName("Should throw VerificationException when token is empty")
-    void should_ThrowVerificationException_WhenTokenIsEmpty() {
-        // When/Then
-        assertThatThrownBy(() -> verificationService.verifyEmail(""))
+            when(userRepository.findByVerificationToken(token)).thenReturn(Optional.of(user));
+            when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+
+            // When
+            verificationService.verifyEmail(token);
+
+            // Then
+            verify(userRepository).findByVerificationToken(token);
+            ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+            verify(userRepository).save(userCaptor.capture());
+
+            User savedUser = userCaptor.getValue();
+            assertThat(savedUser.isEnabled()).isTrue();
+            assertThat(savedUser.getVerificationToken()).isNull(); // Token should be cleared
+        }
+
+        @Test
+        @DisplayName("Should throw VerificationException for blank token")
+        void verifyEmail_withBlankToken_shouldThrowVerificationException() {
+            assertThatThrownBy(() -> verificationService.verifyEmail(null))
                 .isInstanceOf(VerificationException.class)
-                .hasMessageContaining("cannot be empty");
-    }
-
-    @Test
-    @DisplayName("Should throw VerificationException when token is invalid")
-    void should_ThrowVerificationException_WhenTokenIsInvalid() {
-        // Given
-        String invalidToken = "invalid-token";
-        when(userRepository.findByVerificationToken(invalidToken)).thenReturn(Optional.empty());
-        
-        // When/Then
-        assertThatThrownBy(() -> verificationService.verifyEmail(invalidToken))
+                .hasMessageContaining("blank");
+            assertThatThrownBy(() -> verificationService.verifyEmail("  "))
                 .isInstanceOf(VerificationException.class)
-                .hasMessageContaining("Invalid verification token");
+                .hasMessageContaining("blank");
+            verifyNoInteractions(userRepository);
+        }
+
+        @Test
+        @DisplayName("Should throw ResourceNotFoundException for invalid token")
+        void verifyEmail_withInvalidToken_shouldThrowResourceNotFoundException() {
+            // Given
+            String token = "invalid-token";
+            when(userRepository.findByVerificationToken(token)).thenReturn(Optional.empty());
+
+            // When & Then
+            assertThatThrownBy(() -> verificationService.verifyEmail(token))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("Invalid or expired");
+
+            verify(userRepository).findByVerificationToken(token);
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should throw VerificationException if user already enabled")
+        void verifyEmail_whenUserAlreadyEnabled_shouldThrowVerificationException() {
+            // Given
+            String token = "already-verified-token";
+             User user = User.builder()
+                        .id(UUID.randomUUID())
+                        .enabled(true) // Already enabled
+                        .verificationToken(token)
+                        .build();
+            when(userRepository.findByVerificationToken(token)).thenReturn(Optional.of(user));
+
+            // When & Then
+             assertThatThrownBy(() -> verificationService.verifyEmail(token))
+                .isInstanceOf(VerificationException.class)
+                .hasMessageContaining("already verified");
+
+            verify(userRepository).findByVerificationToken(token);
+            verify(userRepository, never()).save(any());
+        }
     }
 
-    @Test
-    @DisplayName("Should return success for already verified user")
-    void should_ReturnSuccess_ForAlreadyVerifiedUser() {
-        // Given
-        testUser.setEnabled(true);
-        when(userRepository.findByVerificationToken(verificationToken)).thenReturn(Optional.of(testUser));
-        
-        // When
-        boolean result = verificationService.verifyEmail(verificationToken);
-        
-        // Then
-        assertThat(result).isTrue();
-        verify(userRepository, never()).save(any(User.class));
-    }
+    @Nested
+    @DisplayName("resendVerificationEmail Tests")
+    class ResendVerificationEmailTests {
+        @Test
+        @DisplayName("Should resend email with existing token if user not verified")
+        void resendVerificationEmail_whenUserNotVerifiedWithToken_shouldResendEmail() {
+            // Given
+            String email = "resend@test.com";
+            String existingToken = "existing-token";
+            User user = User.builder()
+                        .id(UUID.randomUUID())
+                        .email(email)
+                        .enabled(false)
+                        .verificationToken(existingToken)
+                        .build();
+            String verificationUrl = "http://base.url/api/v1/verification/verify/" + existingToken;
 
-    @Test
-    @DisplayName("Should resend verification email successfully")
-    void should_ResendVerificationEmail_Successfully() {
-        // Given
-        when(userRepository.findByEmail(testUser.getEmail())).thenReturn(Optional.of(testUser));
-        lenient().when(userRepository.save(any(User.class))).thenReturn(testUser);
-        
-        // When
-        GenericResponse response = verificationService.resendVerificationEmail(testUser.getEmail());
-        
-        // Then
-        verify(emailService).sendVerificationEmailAsync(testUser);
-        assertThat(response.isSuccess()).isTrue();
-        assertThat(response.getMessage()).contains("resent");
-    }
+            when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+            when(emailProperties.getServiceBaseUrl()).thenReturn("http://base.url");
+            doNothing().when(emailService).sendVerificationEmail(user, verificationUrl);
 
-    @Test
-    @DisplayName("Should not resend verification email for verified users")
-    void should_NotResendVerificationEmail_ForVerifiedUsers() {
-        // Given
-        testUser.setEnabled(true);
-        when(userRepository.findByEmail(testUser.getEmail())).thenReturn(Optional.of(testUser));
-        
-        // When
-        GenericResponse response = verificationService.resendVerificationEmail(testUser.getEmail());
-        
-        // Then
-        verify(emailService, never()).sendVerificationEmailAsync(any(User.class));
-        assertThat(response.isSuccess()).isFalse();
-        assertThat(response.getMessage()).contains("already verified");
-    }
+            // When
+            verificationService.resendVerificationEmail(email);
 
-    @Test
-    @DisplayName("Should generate new verification token if none exists")
-    void should_GenerateNewVerificationToken_IfNoneExists() {
-        // Given
-        testUser.setVerificationToken(null);
-        String newToken = "new-verification-token";
-        
-        when(userRepository.findByEmail(testUser.getEmail())).thenReturn(Optional.of(testUser));
-        when(emailService.generateVerificationToken()).thenReturn(newToken);
-        when(userRepository.save(any(User.class))).thenReturn(testUser);
-        
-        // When
-        verificationService.resendVerificationEmail(testUser.getEmail());
-        
-        // Then
-        verify(userRepository).save(userCaptor.capture());
-        User savedUser = userCaptor.getValue();
-        
-        assertThat(savedUser.getVerificationToken()).isEqualTo(newToken);
+            // Then
+            verify(userRepository).findByEmail(email);
+            verify(userRepository, never()).save(any()); // No new token generated
+            verify(emailProperties).getServiceBaseUrl();
+            verify(emailService).sendVerificationEmail(user, verificationUrl);
+        }
+
+        @Test
+        @DisplayName("Should generate new token, save user, and resend email if user has no token")
+        void resendVerificationEmail_whenUserNotVerifiedWithoutToken_shouldGenerateSaveAndResend() {
+            // Given
+            String email = "resend-notoken@test.com";
+            User user = User.builder()
+                        .id(UUID.randomUUID())
+                        .email(email)
+                        .enabled(false)
+                        .verificationToken(null) // No token initially
+                        .build();
+            String generatedToken = "newly-generated-token"; // Assume generate returns this
+            String verificationUrl = "http://base.url/api/v1/verification/verify/" + generatedToken;
+
+            // Mock findByEmail
+            when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+            // Mock save to capture updated user
+            ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+            when(userRepository.save(userCaptor.capture())).thenAnswer(inv -> inv.getArgument(0));
+            // Mock URL building
+            when(emailProperties.getServiceBaseUrl()).thenReturn("http://base.url");
+            // Mock email sending (verify arguments later)
+            ArgumentCaptor<String> urlCaptor = ArgumentCaptor.forClass(String.class);
+            doNothing().when(emailService).sendVerificationEmail(any(User.class), urlCaptor.capture()); // Capture URL
+
+            // When
+            // We can't easily mock the internal call to generateVerificationToken without spying.
+            // Instead, we verify that save is called with a user that HAS a token,
+            // and that sendEmail is called with the corresponding URL.
+            verificationService.resendVerificationEmail(email);
+
+            // Then
+            verify(userRepository).findByEmail(email);
+            verify(userRepository).save(any(User.class)); // Save should be called
+            User savedUser = userCaptor.getValue();
+            assertThat(savedUser.getVerificationToken()).isNotNull().isNotBlank(); // Verify token was set
+            // Use the captured token to verify subsequent calls
+            String capturedToken = savedUser.getVerificationToken();
+            String expectedUrl = "http://base.url/api/v1/verification/verify/" + capturedToken;
+            verify(emailProperties).getServiceBaseUrl(); // Ensure base URL was fetched
+            verify(emailService).sendVerificationEmail(eq(savedUser), eq(expectedUrl)); // Verify with captured user and exact expected URL
+            assertThat(urlCaptor.getValue()).isEqualTo(expectedUrl); // Double check captured URL
+        }
+
+        @Test
+        @DisplayName("Should throw VerificationException if user already verified")
+        void resendVerificationEmail_whenUserAlreadyVerified_shouldThrowVerificationException() {
+             // Given
+            String email = "already-verified@test.com";
+            User user = User.builder().email(email).enabled(true).build();
+            when(userRepository.findByEmail(email)).thenReturn(Optional.of(user));
+
+            // When & Then
+             assertThatThrownBy(() -> verificationService.resendVerificationEmail(email))
+                .isInstanceOf(VerificationException.class)
+                .hasMessageContaining("already verified");
+
+             verify(userRepository).findByEmail(email);
+             verifyNoInteractions(emailService, tokenService, emailProperties);
+             verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should throw ResourceNotFoundException if email not found")
+        void resendVerificationEmail_whenEmailNotFound_shouldThrowResourceNotFoundException() {
+             // Given
+            String email = "notfound@test.com";
+            when(userRepository.findByEmail(email)).thenReturn(Optional.empty());
+
+             // When & Then
+            assertThatThrownBy(() -> verificationService.resendVerificationEmail(email))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining(email);
+
+            verify(userRepository).findByEmail(email);
+            verifyNoInteractions(emailService, tokenService, emailProperties);
+        }
     }
 } 

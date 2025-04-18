@@ -1,308 +1,298 @@
 package dev.idachev.userservice.service;
 
-import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.InvalidRequestException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
-import dev.idachev.userservice.model.Role;
+import dev.idachev.userservice.mapper.DtoMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
-import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.web.dto.PasswordChangeRequest;
-import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
 import dev.idachev.userservice.web.dto.UserResponse;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
-import org.mockito.Captor;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContext;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("ProfileService Tests")
+@MockitoSettings(strictness = Strictness.LENIENT)
 class ProfileServiceUTest {
 
     @Mock
     private UserRepository userRepository;
-
-    @Mock
-    private UserDetailsService userDetailsService;
-
     @Mock
     private PasswordEncoder passwordEncoder;
-
     @Mock
-    private SecurityContext securityContext;
-
+    private CacheManager cacheManager;
     @Mock
-    private Authentication authentication;
+    private Cache usersCache; // Mock for cache eviction verification
+    @Mock
+    private Cache usernamesCache; // Mock for cache eviction verification
 
-    @Captor
-    private ArgumentCaptor<User> userCaptor;
-
+    @InjectMocks
     private ProfileService profileService;
 
-    private UUID userId;
+    private MockedStatic<DtoMapper> dtoMapperMockedStatic;
+
+    private final String TEST_USERNAME = "profileUser";
+    private final String TEST_EMAIL = "profile@test.com";
+    private final UUID TEST_USER_ID = UUID.randomUUID();
+    private final String CURRENT_PASSWORD_PLAIN = "currentPass123";
+    private final String CURRENT_PASSWORD_ENCODED = "encodedCurrentPass123";
     private User testUser;
 
     @BeforeEach
     void setUp() {
-        profileService = new ProfileService(userRepository, userDetailsService, passwordEncoder);
-
-        userId = UUID.randomUUID();
+        dtoMapperMockedStatic = Mockito.mockStatic(DtoMapper.class);
         testUser = User.builder()
-                .id(userId)
-                .username("testuser")
-                .email("test@example.com")
-                .password("encodedPassword")
-                .role(Role.USER)
-                .enabled(true)
-                .createdOn(LocalDateTime.now())
-                .updatedOn(LocalDateTime.now())
+                .id(TEST_USER_ID)
+                .username(TEST_USERNAME)
+                .email(TEST_EMAIL)
+                .password(CURRENT_PASSWORD_ENCODED)
                 .build();
 
-        SecurityContextHolder.setContext(securityContext);
+        // Mock cache manager to return mock caches with lenient setting
+        lenient().when(cacheManager.getCache("users")).thenReturn(usersCache);
+        lenient().when(cacheManager.getCache("usernames")).thenReturn(usernamesCache);
     }
 
-    @Test
-    @DisplayName("Should get current user when user is authenticated")
-    void should_GetCurrentUser_When_UserIsAuthenticated() {
-        // Given
-        UserPrincipal userPrincipal = new UserPrincipal(testUser);
-
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(userPrincipal);
-
-        // When
-        User result = profileService.getCurrentUser();
-
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getId()).isEqualTo(userId);
-        assertThat(result.getUsername()).isEqualTo(testUser.getUsername());
+    @AfterEach
+    void tearDown() {
+        dtoMapperMockedStatic.close();
     }
 
-    @Test
-    @DisplayName("Should throw AuthenticationException when user is not authenticated")
-    void should_ThrowAuthenticationException_When_UserIsNotAuthenticated() {
-        // Given
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(false);
+    @Nested
+    @DisplayName("getUserInfoByUsername Tests")
+    class GetUserInfoTests {
 
-        // When/Then
-        assertThatThrownBy(() -> profileService.getCurrentUser())
-                .isInstanceOf(AuthenticationException.class)
-                .hasMessageContaining("User not authenticated");
+        @Test
+        @DisplayName("Should return UserResponse when user found")
+        void getUserInfoByUsername_whenUserFound_shouldReturnUserResponse() {
+            // Given
+            UserResponse expectedResponse = UserResponse.builder().id(TEST_USER_ID).username(TEST_USERNAME).build();
+            when(userRepository.findByUsername(TEST_USERNAME)).thenReturn(Optional.of(testUser));
+            dtoMapperMockedStatic.when(() -> DtoMapper.mapToUserResponse(testUser)).thenReturn(expectedResponse);
+
+            // When
+            UserResponse actualResponse = profileService.getUserInfoByUsername(TEST_USERNAME);
+
+            // Then
+            assertThat(actualResponse).isEqualTo(expectedResponse);
+            verify(userRepository).findByUsername(TEST_USERNAME);
+            dtoMapperMockedStatic.verify(() -> DtoMapper.mapToUserResponse(testUser));
+        }
+
+        @Test
+        @DisplayName("Should throw ResourceNotFoundException when user not found")
+        void getUserInfoByUsername_whenUserNotFound_shouldThrowResourceNotFoundException() {
+            // Given
+            when(userRepository.findByUsername(TEST_USERNAME)).thenReturn(Optional.empty());
+
+            // When & Then
+            assertThatThrownBy(() -> profileService.getUserInfoByUsername(TEST_USERNAME))
+                .isInstanceOf(ResourceNotFoundException.class);
+            verify(userRepository).findByUsername(TEST_USERNAME);
+            dtoMapperMockedStatic.verify(() -> DtoMapper.mapToUserResponse(any()), never());
+        }
+
+        @Test
+        @DisplayName("Should throw InvalidRequestException for blank username")
+        void getUserInfoByUsername_withBlankUsername_shouldThrowInvalidRequestException() {
+             assertThatThrownBy(() -> profileService.getUserInfoByUsername(null))
+                .isInstanceOf(InvalidRequestException.class);
+             assertThatThrownBy(() -> profileService.getUserInfoByUsername("   "))
+                .isInstanceOf(InvalidRequestException.class);
+            verifyNoInteractions(userRepository);
+        }
     }
 
-    @Test
-    @DisplayName("Should get current user information when user is authenticated")
-    void should_GetCurrentUserInfo_When_UserIsAuthenticated() {
-        // Given
-        UserPrincipal userPrincipal = new UserPrincipal(testUser);
+    @Nested
+    @DisplayName("deleteAccount Tests")
+    class DeleteAccountTests {
 
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.isAuthenticated()).thenReturn(true);
-        when(authentication.getPrincipal()).thenReturn(userPrincipal);
+        @Test
+        @DisplayName("Should delete user and evict caches when user found")
+        void deleteAccount_whenUserFound_shouldDeleteAndEvictCaches() {
+            // Given
+            when(userRepository.findByUsername(TEST_USERNAME)).thenReturn(Optional.of(testUser));
+            doNothing().when(userRepository).delete(testUser);
+            doNothing().when(usersCache).evict(any()); // Mock cache interactions
+            doNothing().when(usernamesCache).evict(any());
 
-        // When
-        UserResponse result = profileService.getCurrentUserInfo();
+            // When
+            profileService.deleteAccount(TEST_USERNAME);
 
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getId()).isEqualTo(userId);
-        assertThat(result.getUsername()).isEqualTo(testUser.getUsername());
+            // Then
+            verify(userRepository).findByUsername(TEST_USERNAME);
+            verify(userRepository).delete(testUser);
+            // Verify cache evictions
+            verify(usersCache).evict(TEST_USER_ID);
+            verify(usersCache).evict("'username_'" + TEST_USERNAME);
+            verify(usersCache).evict("'email_'" + TEST_EMAIL);
+            verify(usersCache).evict("'allUsers'");
+            verify(usernamesCache).evict(TEST_USER_ID);
+        }
+
+        @Test
+        @DisplayName("Should throw ResourceNotFoundException when user not found")
+        void deleteAccount_whenUserNotFound_shouldThrowResourceNotFoundException() {
+             // Given
+            when(userRepository.findByUsername(TEST_USERNAME)).thenReturn(Optional.empty());
+
+            // When & Then
+            assertThatThrownBy(() -> profileService.deleteAccount(TEST_USERNAME))
+                .isInstanceOf(ResourceNotFoundException.class);
+            verify(userRepository).findByUsername(TEST_USERNAME);
+            verify(userRepository, never()).delete(any());
+             verifyNoInteractions(usersCache, usernamesCache);
+        }
     }
 
-    @Test
-    @DisplayName("Should get user info by identifier when user exists")
-    void should_GetUserInfo_When_UserExists() {
-        // Given
-        String username = "testuser";
+    @Nested
+    @DisplayName("changePassword Tests")
+    class ChangePasswordTests {
 
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
+        private PasswordChangeRequest validRequest;
+        private final String NEW_PASSWORD_PLAIN = "newPass456";
+        private final String NEW_PASSWORD_ENCODED = "encodedNewPass456";
 
-        // When
-        UserResponse result = profileService.getUserInfo(username);
+        @BeforeEach
+        void setupRequest() {
+             validRequest = PasswordChangeRequest.builder()
+                            .currentPassword(CURRENT_PASSWORD_PLAIN)
+                            .newPassword(NEW_PASSWORD_PLAIN)
+                            .confirmPassword(NEW_PASSWORD_PLAIN)
+                            .build();
+        }
 
-        // Then
-        assertThat(result).isNotNull();
-        assertThat(result.getId()).isEqualTo(userId);
-        assertThat(result.getUsername()).isEqualTo(username);
-    }
+        @Test
+        @DisplayName("Should change password and evict caches when request is valid")
+        void changePassword_withValidRequest_shouldChangePasswordAndEvictCaches() {
+            // Given
+            when(userRepository.findByUsername(TEST_USERNAME)).thenReturn(Optional.of(testUser));
+            when(passwordEncoder.matches(CURRENT_PASSWORD_PLAIN, CURRENT_PASSWORD_ENCODED)).thenReturn(true);
+            when(passwordEncoder.encode(NEW_PASSWORD_PLAIN)).thenReturn(NEW_PASSWORD_ENCODED);
+            when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
+            doNothing().when(usersCache).evict(any());
+            doNothing().when(usernamesCache).evict(any());
 
-    @Test
-    @DisplayName("Should throw ResourceNotFoundException when user does not exist")
-    void should_ThrowResourceNotFoundException_When_UserDoesNotExist() {
-        // Given
-        String nonExistingUsername = "nonexistinguser";
+            // When
+            profileService.changePassword(TEST_USERNAME, validRequest);
 
-        when(userRepository.findByUsername(nonExistingUsername)).thenReturn(Optional.empty());
+            // Then
+            verify(userRepository).findByUsername(TEST_USERNAME);
+            verify(passwordEncoder).matches(CURRENT_PASSWORD_PLAIN, CURRENT_PASSWORD_ENCODED);
+            verify(passwordEncoder).encode(NEW_PASSWORD_PLAIN);
 
-        // When/Then
-        assertThatThrownBy(() -> profileService.getUserInfo(nonExistingUsername))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("User not found");
-    }
+            ArgumentCaptor<User> userCaptor = ArgumentCaptor.forClass(User.class);
+            verify(userRepository).save(userCaptor.capture());
+            assertThat(userCaptor.getValue().getPassword()).isEqualTo(NEW_PASSWORD_ENCODED);
 
-    @Test
-    @DisplayName("Should update username when valid request is provided")
-    void should_UpdateUsername_When_ValidRequestIsProvided() {
-        // Given
-        String currentUsername = "testuser";
-        String newUsername = "newusername";
-        ProfileUpdateRequest request = new ProfileUpdateRequest();
-        request.setUsername(newUsername);
+             // Verify cache evictions
+            verify(usersCache).evict(TEST_USER_ID);
+            verify(usersCache).evict("'username_'" + TEST_USERNAME);
+            verify(usersCache).evict("'email_'" + TEST_EMAIL);
+            verify(usersCache).evict("'allUsers'");
+            verify(usernamesCache).evict(TEST_USER_ID);
+        }
 
-        when(userRepository.findByUsername(currentUsername)).thenReturn(Optional.of(testUser));
-        when(userRepository.existsByUsername(newUsername)).thenReturn(false);
-        when(userRepository.save(any(User.class))).thenReturn(testUser);
+        @Test
+        @DisplayName("Should throw ResourceNotFoundException when user not found")
+        void changePassword_whenUserNotFound_shouldThrowResourceNotFoundException() {
+            // Given
+             when(userRepository.findByUsername(TEST_USERNAME)).thenReturn(Optional.empty());
 
-        // When
-        UserResponse result = profileService.updateProfile(currentUsername, request);
+             // When & Then
+             assertThatThrownBy(() -> profileService.changePassword(TEST_USERNAME, validRequest))
+                .isInstanceOf(ResourceNotFoundException.class);
+             verify(userRepository).findByUsername(TEST_USERNAME);
+             verifyNoInteractions(passwordEncoder);
+             verify(userRepository, never()).save(any());
+             verifyNoInteractions(usersCache, usernamesCache);
+        }
 
-        // Then
-        verify(userRepository).save(userCaptor.capture());
-        User savedUser = userCaptor.getValue();
-        verify(userDetailsService).handleUsernameChange(eq(currentUsername), eq(newUsername), any(UUID.class));
+         @Test
+        @DisplayName("Should throw InvalidRequestException when current password incorrect")
+        void changePassword_whenCurrentPasswordIncorrect_shouldThrowInvalidRequestException() {
+            // Given
+            when(userRepository.findByUsername(TEST_USERNAME)).thenReturn(Optional.of(testUser));
+            when(passwordEncoder.matches(CURRENT_PASSWORD_PLAIN, CURRENT_PASSWORD_ENCODED)).thenReturn(false); // Incorrect match
 
-        assertThat(result).isNotNull();
-        assertThat(savedUser.getUsername()).isEqualTo(newUsername);
-    }
-
-    @Test
-    @DisplayName("Should throw IllegalArgumentException when updating with taken username")
-    void should_ThrowIllegalArgumentException_When_UpdatingWithTakenUsername() {
-        // Given
-        String currentUsername = "testuser";
-        String takenUsername = "takenusername";
-        ProfileUpdateRequest request = new ProfileUpdateRequest();
-        request.setUsername(takenUsername);
-
-        when(userRepository.findByUsername(currentUsername)).thenReturn(Optional.of(testUser));
-        when(userRepository.existsByUsername(takenUsername)).thenReturn(true);
-
-        // When/Then
-        assertThatThrownBy(() -> profileService.updateProfile(currentUsername, request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("Username is already taken");
-    }
-
-    @Test
-    @DisplayName("Should delete user account when user exists")
-    void should_DeleteAccount_When_UserExists() {
-        // Given
-        String username = "testuser";
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
-        
-        // When
-        profileService.deleteAccount(username);
-        
-        // Then
-        verify(userRepository).delete(testUser);
-    }
-    
-    @Test
-    @DisplayName("Should throw ResourceNotFoundException when deleting non-existent user")
-    void should_ThrowResourceNotFoundException_When_DeletingNonExistentUser() {
-        // Given
-        String nonExistingUsername = "nonexistinguser";
-        when(userRepository.findByUsername(nonExistingUsername)).thenReturn(Optional.empty());
-        
-        // When/Then
-        assertThatThrownBy(() -> profileService.deleteAccount(nonExistingUsername))
-                .isInstanceOf(ResourceNotFoundException.class)
-                .hasMessageContaining("User not found");
-    }
-    
-    @Test
-    @DisplayName("Should change password when valid request is provided")
-    void should_ChangePassword_When_ValidRequestIsProvided() {
-        // Given
-        String username = "testuser";
-        String currentPassword = "password123";
-        String newPassword = "newPassword123";
-        String encodedNewPassword = "encodedNewPassword123";
-        
-        PasswordChangeRequest request = PasswordChangeRequest.builder()
-                .currentPassword(currentPassword)
-                .newPassword(newPassword)
-                .confirmPassword(newPassword)
-                .build();
-        
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
-        when(passwordEncoder.matches(currentPassword, testUser.getPassword())).thenReturn(true);
-        when(passwordEncoder.encode(newPassword)).thenReturn(encodedNewPassword);
-        
-        // When
-        profileService.changePassword(username, request);
-        
-        // Then
-        verify(userRepository).save(userCaptor.capture());
-        User savedUser = userCaptor.getValue();
-        
-        assertThat(savedUser.getPassword()).isEqualTo(encodedNewPassword);
-    }
-    
-    @Test
-    @DisplayName("Should throw InvalidRequestException when current password is incorrect")
-    void should_ThrowInvalidRequestException_When_CurrentPasswordIsIncorrect() {
-        // Given
-        String username = "testuser";
-        String wrongCurrentPassword = "wrongPassword";
-        String newPassword = "newPassword123";
-        
-        PasswordChangeRequest request = PasswordChangeRequest.builder()
-                .currentPassword(wrongCurrentPassword)
-                .newPassword(newPassword)
-                .confirmPassword(newPassword)
-                .build();
-        
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
-        when(passwordEncoder.matches(wrongCurrentPassword, testUser.getPassword())).thenReturn(false);
-        
-        // When/Then
-        assertThatThrownBy(() -> profileService.changePassword(username, request))
+             // When & Then
+             assertThatThrownBy(() -> profileService.changePassword(TEST_USERNAME, validRequest))
                 .isInstanceOf(InvalidRequestException.class)
                 .hasMessageContaining("Current password is incorrect");
-    }
-    
-    @Test
-    @DisplayName("Should throw InvalidRequestException when passwords don't match")
-    void should_ThrowInvalidRequestException_When_PasswordsDontMatch() {
-        // Given
-        String username = "testuser";
-        String currentPassword = "password123";
-        String newPassword = "newPassword123";
-        String confirmPassword = "differentPassword123";
-        
-        PasswordChangeRequest request = PasswordChangeRequest.builder()
-                .currentPassword(currentPassword)
-                .newPassword(newPassword)
-                .confirmPassword(confirmPassword)
-                .build();
-        
-        when(userRepository.findByUsername(username)).thenReturn(Optional.of(testUser));
-        when(passwordEncoder.matches(currentPassword, testUser.getPassword())).thenReturn(true);
-        
-        // When/Then
-        assertThatThrownBy(() -> profileService.changePassword(username, request))
+
+            verify(userRepository).findByUsername(TEST_USERNAME);
+            verify(passwordEncoder).matches(CURRENT_PASSWORD_PLAIN, CURRENT_PASSWORD_ENCODED);
+            verify(passwordEncoder, never()).encode(any());
+            verify(userRepository, never()).save(any());
+        }
+
+        @Test
+        @DisplayName("Should throw InvalidRequestException when new passwords do not match")
+        void changePassword_whenNewPasswordsMismatch_shouldThrowInvalidRequestException() {
+            // Given
+            PasswordChangeRequest mismatchRequest = PasswordChangeRequest.builder()
+                            .currentPassword(CURRENT_PASSWORD_PLAIN)
+                            .newPassword(NEW_PASSWORD_PLAIN)
+                            .confirmPassword("doesNotMatch")
+                            .build();
+            when(userRepository.findByUsername(TEST_USERNAME)).thenReturn(Optional.of(testUser));
+            when(passwordEncoder.matches(CURRENT_PASSWORD_PLAIN, CURRENT_PASSWORD_ENCODED)).thenReturn(true);
+
+             // When & Then
+             assertThatThrownBy(() -> profileService.changePassword(TEST_USERNAME, mismatchRequest))
                 .isInstanceOf(InvalidRequestException.class)
-                .hasMessageContaining("New password and confirmation do not match");
+                .hasMessageContaining("do not match");
+
+            verify(userRepository).findByUsername(TEST_USERNAME);
+            verify(passwordEncoder).matches(CURRENT_PASSWORD_PLAIN, CURRENT_PASSWORD_ENCODED);
+            verify(passwordEncoder, never()).encode(any());
+            verify(userRepository, never()).save(any());
+        }
+
+         @Test
+        @DisplayName("Should throw NullPointerException when required fields in request are null")
+        void changePassword_withNullFieldsInRequest_shouldThrowNPE() {
+            // Given
+            when(userRepository.findByUsername(TEST_USERNAME)).thenReturn(Optional.of(testUser));
+            PasswordChangeRequest nullCurrent = PasswordChangeRequest.builder().currentPassword(null).newPassword("n").confirmPassword("n").build();
+            PasswordChangeRequest nullNew = PasswordChangeRequest.builder().currentPassword("c").newPassword(null).confirmPassword("n").build();
+            PasswordChangeRequest nullConfirm = PasswordChangeRequest.builder().currentPassword("c").newPassword("n").confirmPassword(null).build();
+
+            // When & Then (Checking for NullPointerException due to Objects.requireNonNull)
+             assertThatThrownBy(() -> profileService.changePassword(TEST_USERNAME, nullCurrent))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Current password cannot be null");
+             assertThatThrownBy(() -> profileService.changePassword(TEST_USERNAME, nullNew))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("New password cannot be null");
+            // Check confirm password *after* current password check passes
+            when(passwordEncoder.matches(any(), any())).thenReturn(true);
+             assertThatThrownBy(() -> profileService.changePassword(TEST_USERNAME, nullConfirm))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("Confirm password cannot be null");
+        }
     }
 } 

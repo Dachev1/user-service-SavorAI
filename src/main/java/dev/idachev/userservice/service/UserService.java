@@ -54,7 +54,12 @@ public class UserService {
                 passwordEncoder,
                 verificationService.generateVerificationToken()
         );
-        return userRepository.save(newUser);
+        try {
+            return userRepository.save(newUser);
+        } catch (Exception e) {
+            log.error("Unexpected error during user registration for username {}: {}", request.username(), e.getMessage(), e);
+            throw new RuntimeException("An unexpected error occurred during registration.", e);
+        }
     }
 
     /**
@@ -314,6 +319,11 @@ public class UserService {
         Cache statsCache = cacheManager.getCache("userStats");
         if (statsCache != null) {
             statsCache.clear();
+        }
+        // Also clear the usernames cache as user changes (delete, ban, role) affect it
+        Cache usernamesCache = cacheManager.getCache("usernames");
+        if (usernamesCache != null) {
+            usernamesCache.clear();
         }
     }
 } 

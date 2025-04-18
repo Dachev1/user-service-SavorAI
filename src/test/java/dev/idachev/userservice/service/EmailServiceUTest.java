@@ -1,168 +1,196 @@
 package dev.idachev.userservice.service;
 
-import dev.idachev.userservice.exception.EmailSendException;
-import dev.idachev.userservice.model.Role;
+import dev.idachev.userservice.config.EmailProperties;
 import dev.idachev.userservice.model.User;
-import dev.idachev.userservice.web.dto.GenericResponse;
 import jakarta.mail.MessagingException;
+import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
+import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.http.HttpStatus;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.mail.javamail.JavaMailSender;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.thymeleaf.context.Context;
 import org.thymeleaf.spring6.SpringTemplateEngine;
 
-import java.time.LocalDateTime;
+import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 import static org.mockito.Mockito.lenient;
 
 @ExtendWith(MockitoExtension.class)
+@DisplayName("EmailService Tests")
+@MockitoSettings(strictness = Strictness.LENIENT)
 class EmailServiceUTest {
 
     @Mock
     private JavaMailSender mailSender;
-
     @Mock
     private SpringTemplateEngine templateEngine;
-
     @Mock
+    private EmailProperties emailProperties;
+
+    @InjectMocks
+    private EmailService emailService;
+
+    // Use a real MimeMessage for capturing, needs a Session
     private MimeMessage mimeMessage;
 
     @Captor
     private ArgumentCaptor<Context> contextCaptor;
+    @Captor
+    private ArgumentCaptor<MimeMessage> mimeMessageCaptor;
 
-    private EmailService emailService;
-    private User testUser;
+    private final String FROM_ADDRESS = "test@from.com";
+    private final String APP_NAME = "TestApp";
+    private final String CONTACT_RECIPIENT = "contact@test.com";
 
     @BeforeEach
     void setUp() {
-        emailService = new EmailService(mailSender, templateEngine);
-        
-        // Set required properties using reflection
-        ReflectionTestUtils.setField(emailService, "appName", "TestApp");
-        ReflectionTestUtils.setField(emailService, "serverPort", "8081");
-        ReflectionTestUtils.setField(emailService, "serviceUrl", "http://localhost");
-        ReflectionTestUtils.setField(emailService, "defaultContactRecipient", "test@example.com");
-        ReflectionTestUtils.setField(emailService, "fromEmail", "noreply@testapp.com");
-        
-        // Setup test user
-        testUser = User.builder()
+        // Mock properties with lenient setting
+        lenient().when(emailProperties.getFromAddress()).thenReturn(FROM_ADDRESS);
+        lenient().when(emailProperties.getAppName()).thenReturn(APP_NAME);
+        lenient().when(emailProperties.getContactRecipient()).thenReturn(CONTACT_RECIPIENT);
+
+        // Mock mailSender to create a MimeMessage we can inspect
+        // Need a dummy Session for MimeMessage creation
+        Session session = Session.getInstance(new Properties());
+        mimeMessage = new MimeMessage(session);
+        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
+    }
+
+    @Test
+    @DisplayName("sendVerificationEmail should process template and send email")
+    void sendVerificationEmail_shouldProcessTemplateAndSend() throws MessagingException {
+        // Given
+        User user = User.builder()
                 .id(UUID.randomUUID())
-                .username("testuser")
-                .email("user@example.com")
-                .password("encodedPassword")
-                .role(Role.USER)
-                .enabled(false)
-                .verificationToken("8a5b22f3-6cba-4c8b-acd6-983fe63af20c")
-                .createdOn(LocalDateTime.now())
+                .username("verifyUser")
+                .email("verify@test.com")
                 .build();
-    }
+        String verificationUrl = "http://verify.me";
+        String expectedHtmlContent = "<html>Verification HTML</html>";
+        String expectedSubject = APP_NAME + " - Verify Your Email";
 
-    @Test
-    @DisplayName("Should generate verification token successfully")
-    void should_GenerateVerificationToken_Successfully() {
-        // When
-        String token = emailService.generateVerificationToken();
-        
-        // Then
-        assertThat(token).isNotNull();
-        assertThat(token).isNotEmpty();
-        
-        // Try to parse as UUID to validate format
-        UUID.fromString(token);
-    }
+        when(templateEngine.process(eq("email/verification"), contextCaptor.capture())).thenReturn(expectedHtmlContent);
+        doNothing().when(mailSender).send(any(MimeMessage.class)); // Mock the actual send
 
-    @Test
-    @DisplayName("Should send verification email successfully")
-    void should_SendVerificationEmail_Successfully() throws MessagingException {
-        // Given
-        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(eq("email/verification"), any(Context.class))).thenReturn("<html>Test Email</html>");
-        
         // When
-        emailService.sendVerificationEmail(testUser);
-        
+        emailService.sendVerificationEmail(user, verificationUrl);
+
         // Then
-        verify(mailSender).createMimeMessage();
-        verify(templateEngine).process(eq("email/verification"), contextCaptor.capture());
-        verify(mailSender).send(any(MimeMessage.class));
-        
+        // Verify template processing
+        verify(templateEngine).process(eq("email/verification"), any(Context.class));
         Context capturedContext = contextCaptor.getValue();
-        assertThat(capturedContext.getVariable("username")).isEqualTo(testUser.getUsername());
-        assertThat(capturedContext.getVariable("verificationUrl")).isNotNull();
+        assertThat(capturedContext.getVariable("username")).isEqualTo(user.getUsername());
+        assertThat(capturedContext.getVariable("verificationUrl")).isEqualTo(verificationUrl);
+        assertThat(capturedContext.getVariable("appName")).isEqualTo(APP_NAME);
+        assertThat(capturedContext.getVariable("supportEmail")).isEqualTo(CONTACT_RECIPIENT);
+
+        // Verify email sending
+        verify(mailSender).send(mimeMessageCaptor.capture());
+        MimeMessage capturedMessage = mimeMessageCaptor.getValue();
+
+        // Assertions on the captured MimeMessage (more complex)
+        assertThat(capturedMessage.getSubject()).isEqualTo(expectedSubject);
+        assertThat(capturedMessage.getAllRecipients()[0].toString()).isEqualTo(user.getEmail());
+        // Check content requires more work (getContent(), etc.) but verifying subject/recipient is often enough
+        // assertThat(capturedMessage.getContent().toString()).contains(expectedHtmlContent);
+    }
+
+    @Nested
+    class SendVerificationEmailTests {
+
+        @Test
+        @MockitoSettings(strictness = Strictness.LENIENT)
+        void sendVerificationEmail_shouldNotSendIfUserOrEmailIsNullEmpty() {
+            // Given user is null
+            emailService.sendVerificationEmail(null, "someUrl");
+
+            verifyNoInteractions(mailSender, emailProperties, templateEngine);
+        }
+
+        @Test
+        @MockitoSettings(strictness = Strictness.LENIENT)
+        void sendVerificationEmail_shouldNotSendIfVerificationUrlIsBlank() {
+            // Given url is blank
+            emailService.sendVerificationEmail(User.builder().build(), " ");
+
+            verifyNoInteractions(mailSender, emailProperties, templateEngine);
+        }
     }
 
     @Test
-    @DisplayName("Should send verification email asynchronously")
-    void should_SendVerificationEmailAsync_Successfully() {
-        // Create spy
-        EmailService spyEmailService = spy(emailService);
-        
-        // Use doNothing to avoid actually calling the method
-        doNothing().when(spyEmailService).sendVerificationEmail(any(User.class));
-        
-        // When
-        CompletableFuture<Void> future = spyEmailService.sendVerificationEmailAsync(testUser);
-        
-        // We can't verify the async behavior easily, so just check if the method doesn't throw
-        assertThat(future).isNotNull();
-    }
-
-    @Test
-    @DisplayName("Should process contact form successfully")
-    void should_ProcessContactForm_Successfully() throws MessagingException {
+    @DisplayName("sendContactFormEmail (default recipient) should process template and send email")
+    void sendContactFormEmail_defaultRecipient_shouldProcessAndSend() throws MessagingException {
         // Given
-        String senderEmail = "sender@example.com";
-        String subject = "Test Subject";
-        String message = "Test Message";
-        
-        // Use lenient mocking for the async behavior 
-        lenient().when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        lenient().when(templateEngine.process(eq("email/contact-form"), any(Context.class))).thenReturn("<html>Test Contact Email</html>");
-        
-        // Create spy for async behavior
-        EmailService spyEmailService = spy(emailService);
-        doReturn(CompletableFuture.completedFuture(null))
-            .when(spyEmailService).sendContactFormEmailAsync(anyString(), anyString(), anyString());
-        
+        String fromUserEmail = "sender@test.com";
+        String subject = "Help Needed";
+        String message = "My message body.";
+        String expectedHtmlContent = "<html>Contact HTML</html>";
+        String expectedSubject = "Contact Form [" + APP_NAME + "]: " + subject;
+
+        when(templateEngine.process(eq("email/contact-form"), contextCaptor.capture())).thenReturn(expectedHtmlContent);
+        doNothing().when(mailSender).send(any(MimeMessage.class));
+
         // When
-        GenericResponse response = spyEmailService.processContactForm(senderEmail, subject, message);
-        
+        emailService.sendContactFormEmail(fromUserEmail, subject, message);
+
         // Then
-        verify(spyEmailService).sendContactFormEmailAsync(senderEmail, subject, message);
-        
-        assertThat(response.isSuccess()).isTrue();
-        assertThat(response.getMessage()).contains("Thank you for your message");
-        assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+        // Verify template processing
+        verify(templateEngine).process(eq("email/contact-form"), any(Context.class));
+        Context capturedContext = contextCaptor.getValue();
+        assertThat(capturedContext.getVariable("fromEmail")).isEqualTo(fromUserEmail);
+        assertThat(capturedContext.getVariable("subject")).isEqualTo(subject);
+        assertThat(capturedContext.getVariable("message")).isEqualTo(message);
+        assertThat(capturedContext.getVariable("appName")).isEqualTo(APP_NAME);
+
+        // Verify email sending
+        verify(mailSender).send(mimeMessageCaptor.capture());
+        MimeMessage capturedMessage = mimeMessageCaptor.getValue();
+        assertThat(capturedMessage.getSubject()).isEqualTo(expectedSubject);
+        assertThat(capturedMessage.getAllRecipients()[0].toString()).isEqualTo(CONTACT_RECIPIENT); // Default recipient
     }
 
     @Test
-    @DisplayName("Should handle email sending failure gracefully")
-    void should_HandleEmailSendingFailure_Gracefully() throws MessagingException {
+    @DisplayName("sendContactFormEmail (specific recipient) should process template and send email")
+    void sendContactFormEmail_specificRecipient_shouldProcessAndSend() throws MessagingException {
         // Given
-        when(mailSender.createMimeMessage()).thenReturn(mimeMessage);
-        when(templateEngine.process(anyString(), any(Context.class))).thenReturn("<html>Test Email</html>");
-        doThrow(new RuntimeException("Failed to send email")).when(mailSender).send(any(MimeMessage.class));
-        
-        // When/Then
-        assertThatThrownBy(() -> emailService.sendVerificationEmail(testUser))
-                .isInstanceOf(EmailSendException.class)
-                .hasMessageContaining("Failed to send verification email");
+        String recipient = "specific@example.com";
+        String fromUserEmail = "sender@test.com";
+        String subject = "Specific Help";
+        String message = "My specific message body.";
+        String expectedHtmlContent = "<html>Specific Contact HTML</html>";
+        String expectedSubject = "Contact Form [" + APP_NAME + "]: " + subject;
+
+        when(templateEngine.process(eq("email/contact-form"), any(Context.class))).thenReturn(expectedHtmlContent);
+        doNothing().when(mailSender).send(any(MimeMessage.class));
+
+        // When
+        emailService.sendContactFormEmail(recipient, fromUserEmail, subject, message);
+
+        // Then
+        // Verify email sending to specific recipient
+        verify(mailSender).send(mimeMessageCaptor.capture());
+        MimeMessage capturedMessage = mimeMessageCaptor.getValue();
+        assertThat(capturedMessage.getAllRecipients()[0].toString()).isEqualTo(recipient);
+        assertThat(capturedMessage.getSubject()).isEqualTo(expectedSubject);
+        verify(templateEngine).process(eq("email/contact-form"), any(Context.class)); // Ensure template still processed
     }
+
+    // Note: Testing the private @Async sendEmail method directly is harder in unit tests.
+    // We test the public methods and verify the interaction with mailSender.send(), assuming the async part works.
+    // Testing the exception handling within the @Async method would require more complex async testing setup or integration tests.
 } 

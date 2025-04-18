@@ -29,6 +29,10 @@ public class JwtConfig {
 
     private Key signingKey;
 
+    public Key getSigningKey() {
+        return signingKey;
+    }
+
     @PostConstruct
     public void init() {
         try {
