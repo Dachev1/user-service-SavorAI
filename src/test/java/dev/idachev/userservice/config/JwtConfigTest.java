@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
 
 @ExtendWith(MockitoExtension.class)
-class JwtConfigUTest {
+class JwtConfigTest {
 
     private JwtConfig jwtConfig;
     
