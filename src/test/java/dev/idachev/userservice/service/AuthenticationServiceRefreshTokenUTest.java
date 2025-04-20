@@ -2,7 +2,7 @@ package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.UserNotFoundException;
-import dev.idachev.userservice.mapper.DtoMapper;
+import dev.idachev.userservice.web.mapper.DtoMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;

@@ -1,11 +1,9 @@
 package dev.idachev.userservice.service;
 
-import dev.idachev.userservice.config.EmailProperties;
 import dev.idachev.userservice.exception.AccountVerificationException;
 import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.DuplicateUserException;
-import dev.idachev.userservice.exception.UserNotFoundException;
-import dev.idachev.userservice.mapper.DtoMapper;
+import dev.idachev.userservice.web.mapper.DtoMapper;
 import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
@@ -34,7 +32,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
 

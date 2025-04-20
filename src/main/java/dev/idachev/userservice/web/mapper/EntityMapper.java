@@ -1,4 +1,4 @@
-package dev.idachev.userservice.mapper;
+package dev.idachev.userservice.web.mapper;
 
 import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;

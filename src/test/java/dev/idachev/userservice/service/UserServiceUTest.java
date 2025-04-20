@@ -2,8 +2,8 @@ package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.exception.OperationForbiddenException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
-import dev.idachev.userservice.mapper.DtoMapper;
-import dev.idachev.userservice.mapper.EntityMapper;
+import dev.idachev.userservice.web.mapper.DtoMapper;
+import dev.idachev.userservice.web.mapper.EntityMapper;
 import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;

@@ -11,7 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import dev.idachev.userservice.exception.InvalidRequestException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
-import dev.idachev.userservice.mapper.DtoMapper;
+import dev.idachev.userservice.web.mapper.DtoMapper;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.web.dto.PasswordChangeRequest;
