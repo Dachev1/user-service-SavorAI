@@ -15,9 +15,6 @@ This service handles user registration, login, profile management, authorization
 *   [Running Tests](#running-tests)
 *   [API Reference](#api-reference)
 *   [Contributing](#contributing)
-*   [License](#license)
-*   [Contact](#contact)
-*   [Acknowledgements](#acknowledgements)
 
 ## Features
 
