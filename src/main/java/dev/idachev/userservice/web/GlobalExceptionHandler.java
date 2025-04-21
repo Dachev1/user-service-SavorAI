@@ -17,6 +17,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -134,6 +135,18 @@ public class GlobalExceptionHandler {
                 .collect(Collectors.joining("; "));
 
         return createResponse(HttpStatus.BAD_REQUEST, errorMessage);
+    }
+
+    /**
+     * Handles errors when a request parameter cannot be converted to the required type (e.g., String to Enum).
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<GenericResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        String error = String.format("Invalid value '%s' for parameter '%s'. Required type is '%s'.",
+                ex.getValue(), ex.getName(), ex.getRequiredType().getSimpleName());
+        log.warn("Type mismatch: {}", error);
+        return createResponse(HttpStatus.BAD_REQUEST, error);
     }
 
     /**
@@ -255,6 +268,16 @@ public class GlobalExceptionHandler {
         log.error("Email sending failed: {}", ex.getMessage(), ex.getCause()); 
         return createResponse(HttpStatus.INTERNAL_SERVER_ERROR, 
                               "Failed to send email. Please try again later or contact support.");
+    }
+
+    /**
+     * Handles duplicate user registration attempts (e.g., username/email taken)
+     */
+    @ExceptionHandler(dev.idachev.userservice.exception.UserAlreadyExistsException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ResponseEntity<GenericResponse> handleUserAlreadyExistsException(dev.idachev.userservice.exception.UserAlreadyExistsException ex) {
+        log.warn("User already exists error: {}", ex.getMessage());
+        return createResponse(HttpStatus.CONFLICT, ex.getMessage());
     }
 
     /**

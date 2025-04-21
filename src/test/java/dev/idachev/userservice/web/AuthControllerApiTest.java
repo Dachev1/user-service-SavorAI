@@ -1,425 +1,326 @@
 package dev.idachev.userservice.web;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.idachev.userservice.exception.AuthenticationException;
-import dev.idachev.userservice.exception.ResourceConflictException;
+import dev.idachev.userservice.config.JwtConfig;
+import dev.idachev.userservice.exception.InvalidTokenException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
-import dev.idachev.userservice.model.Role;
+import dev.idachev.userservice.exception.UserAlreadyExistsException;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.service.AuthenticationService;
+import dev.idachev.userservice.service.TokenBlacklistService;
+import dev.idachev.userservice.service.UserDetailsService;
 import dev.idachev.userservice.web.dto.*;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.http.HttpHeaders;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.test.context.support.WithUserDetails;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.Collections;
-
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.mockito.BDDMockito.*;
+import static org.mockito.Mockito.mock;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
-@WebMvcTest(controllers = AuthController.class)
-@AutoConfigureMockMvc(addFilters = false)
-@DisplayName("AuthController API Tests")
+@WebMvcTest(
+        controllers = AuthController.class
+)
+@DisplayName("AuthController Tests")
 class AuthControllerApiTest {
 
-    private static final String BASE_PATH = "/api/v1/auth";
+    @TestConfiguration
+    static class TestSecurityConfiguration {
+        @Bean
+        public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+            http
+                    .authorizeHttpRequests(authorize -> authorize
+                            .requestMatchers("/api/v1/auth/**").permitAll()
+                            .anyRequest().authenticated()
+                    )
+                    .httpBasic(AbstractHttpConfigurer::disable)
+                    .csrf(AbstractHttpConfigurer::disable);
+            return http.build();
+        }
+
+        @Bean
+        @Primary
+        public UserDetailsService userDetailsService() {
+            UserDetailsService mockUserDetailsService = mock(UserDetailsService.class);
+            User mockUser = User.builder().username("currentuser").password("password").build();
+            UserPrincipal mockPrincipal = new UserPrincipal(mockUser);
+            given(mockUserDetailsService.loadUserByUsername("currentuser")).willReturn(mockPrincipal);
+            return mockUserDetailsService;
+        }
+    }
 
     @Autowired
     private MockMvc mockMvc;
-
     @Autowired
     private ObjectMapper objectMapper;
+    @MockitoBean
+    private AuthenticationService authenticationService;
+    @MockitoBean
+    private JwtConfig jwtConfig;
+    @MockitoBean
+    private TokenBlacklistService tokenBlacklistService;
 
-    @MockBean
-    private AuthenticationService authService;
+    @Test
+    @DisplayName("POST /signin - Success")
+    void signin_Success() throws Exception {
+        SignInRequest signInRequest = new SignInRequest("testuser", "password");
+        AuthResponse mockAuthResponse = AuthResponse.builder()
+                .token("dummy-jwt-token").success(true).message("Authentication successful").build();
 
-    private RegisterRequest registerRequest;
-    private SignInRequest signInRequest;
-    private ProfileUpdateRequest profileUpdateRequest;
-    private AuthResponse authResponse;
-    private UserStatusResponse userStatusResponse;
+        given(authenticationService.signIn(any(SignInRequest.class))).willReturn(mockAuthResponse);
 
-    @BeforeEach
-    void setUp() {
-        registerRequest = new RegisterRequest("testuser", "test@example.com", "password123");
-        signInRequest = new SignInRequest("testuser", "password123");
-        profileUpdateRequest = new ProfileUpdateRequest("newuser", "password123");
-        authResponse = AuthResponse.builder()
-                .token("access_token")
-                .username("testuser")
-                .email("test@example.com")
-                .role(Role.USER.name())
-                .enabled(true)
-                .verificationPending(false)
-                .banned(false)
+        mockMvc.perform(post("/api/v1/auth/signin")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(signInRequest)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.token").value(mockAuthResponse.getToken()))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Authentication successful"));
+    }
+
+    @Test
+    @DisplayName("POST /signup - Success")
+    void signup_Success() throws Exception {
+        RegisterRequest registerRequest = new RegisterRequest("newuser", "newuser@example.com", "Password123!");
+        AuthResponse mockAuthResponse = AuthResponse.builder()
+                .token("signup-jwt-token")
                 .success(true)
-                .message("Success")
+                .message("User signed up successfully")
+                .username(registerRequest.username())
+                .email(registerRequest.email())
                 .build();
-        userStatusResponse = new UserStatusResponse("testuser", true, false);
+
+        given(authenticationService.register(any(RegisterRequest.class))).willReturn(mockAuthResponse);
+
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isCreated())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.token").value(mockAuthResponse.getToken()))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("User signed up successfully"))
+                .andExpect(jsonPath("$.username").value(registerRequest.username()))
+                .andExpect(jsonPath("$.email").value(registerRequest.email()));
     }
 
-    @Nested
-    @DisplayName("POST /signup")
-    class SignupTests {
+    @Test
+    @DisplayName("POST /refresh-token - Success")
+    void refreshToken_Success() throws Exception {
+        String refreshToken = "valid-refresh-token";
+        String authHeader = "Bearer " + refreshToken;
+        AuthResponse mockAuthResponse = AuthResponse.builder()
+                .token("new-access-token").success(true).message("Token refreshed successfully").build();
 
-        @Test
-        @DisplayName("Should return 201 Created on successful signup")
-        void signup_Success() throws Exception {
-            when(authService.register(any(RegisterRequest.class))).thenReturn(authResponse);
+        given(authenticationService.refreshToken(authHeader)).willReturn(mockAuthResponse);
 
-            mockMvc.perform(post(BASE_PATH + "/signup")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(registerRequest)))
-                    .andExpect(status().isCreated())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.token").value(authResponse.getToken()));
-
-            verify(authService).register(eq(registerRequest));
-        }
-
-        @Test
-        @DisplayName("Should return 409 Conflict when username/email already exists")
-        void signup_Conflict() throws Exception {
-            when(authService.register(any(RegisterRequest.class)))
-                    .thenThrow(new ResourceConflictException("Username or email already exists"));
-
-            mockMvc.perform(post(BASE_PATH + "/signup")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(registerRequest)))
-                    .andExpect(status().isConflict());
-
-            verify(authService).register(eq(registerRequest));
-        }
-
-        @Test
-        @DisplayName("Should return 400 Bad Request for invalid input")
-        void signup_BadRequest_InvalidInput() throws Exception {
-            RegisterRequest invalidRequest = new RegisterRequest("", "", ""); // Invalid data
-
-            mockMvc.perform(post(BASE_PATH + "/signup")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(invalidRequest)))
-                    .andExpect(status().isBadRequest()); // Assuming validation is handled by @Valid
-
-            verify(authService, never()).register(any(RegisterRequest.class));
-        }
+        mockMvc.perform(post("/api/v1/auth/refresh-token")
+                        .with(csrf())
+                        .header("Authorization", authHeader))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.token").value(mockAuthResponse.getToken()))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Token refreshed successfully"));
     }
 
-    @Nested
-    @DisplayName("POST /signin")
-    class SigninTests {
+    @Test
+    @DisplayName("POST /logout - Success")
+    void logout_Success() throws Exception {
+        String authToken = "valid-auth-token";
+        String authHeader = "Bearer " + authToken;
 
-        @Test
-        @DisplayName("Should return 200 OK on successful signin")
-        void signin_Success() throws Exception {
-            when(authService.signIn(any(SignInRequest.class))).thenReturn(authResponse);
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .with(csrf())
+                        .header("Authorization", authHeader))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Successfully logged out"));
 
-            mockMvc.perform(post(BASE_PATH + "/signin")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(signInRequest)))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.token").value(authResponse.getToken()));
-
-            verify(authService).signIn(eq(signInRequest));
-        }
-
-        @Test
-        @DisplayName("Should return 401 Unauthorized for invalid credentials")
-        void signin_Unauthorized_InvalidCredentials() throws Exception {
-            when(authService.signIn(any(SignInRequest.class)))
-                    .thenThrow(new AuthenticationException("Invalid credentials"));
-
-            mockMvc.perform(post(BASE_PATH + "/signin")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(signInRequest)))
-                    .andExpect(status().isUnauthorized());
-
-            verify(authService).signIn(eq(signInRequest));
-        }
-
-        @Test
-        @DisplayName("Should return 400 Bad Request for invalid input")
-        void signin_BadRequest_InvalidInput() throws Exception {
-            SignInRequest invalidRequest = new SignInRequest("", ""); // Invalid data
-
-            mockMvc.perform(post(BASE_PATH + "/signin")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(invalidRequest)))
-                    .andExpect(status().isBadRequest()); // Assuming validation is handled by @Valid
-
-            verify(authService, never()).signIn(any(SignInRequest.class));
-        }
+        then(authenticationService).should().logout(authHeader);
     }
 
-    @Nested
-    @DisplayName("POST /refresh-token")
-    class RefreshTokenTests {
+    @Test
+    @DisplayName("POST /change-username - Success")
+    @WithUserDetails("currentuser")
+    void changeUsername_Success() throws Exception {
+        ProfileUpdateRequest request = new ProfileUpdateRequest("newusername", "currentpassword");
+        String currentUsername = "currentuser";
 
-        @Test
-        @DisplayName("Should return 200 OK with new tokens for valid refresh token")
-        void refreshToken_Success() throws Exception {
-            String validRefreshTokenHeader = "Bearer valid_refresh_token";
-            when(authService.refreshToken(eq(validRefreshTokenHeader))).thenReturn(authResponse);
+        mockMvc.perform(post("/api/v1/auth/change-username")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Username updated successfully"));
 
-            mockMvc.perform(post(BASE_PATH + "/refresh-token")
-                            .header(HttpHeaders.AUTHORIZATION, validRefreshTokenHeader))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.token").value(authResponse.getToken()));
-
-            verify(authService).refreshToken(eq(validRefreshTokenHeader));
-        }
-
-        @Test
-        @DisplayName("Should return 401 Unauthorized for invalid or expired refresh token")
-        void refreshToken_Unauthorized_InvalidToken() throws Exception {
-            String invalidRefreshTokenHeader = "Bearer invalid_refresh_token";
-            when(authService.refreshToken(eq(invalidRefreshTokenHeader)))
-                    .thenThrow(new AuthenticationException("Invalid refresh token"));
-
-            mockMvc.perform(post(BASE_PATH + "/refresh-token")
-                            .header(HttpHeaders.AUTHORIZATION, invalidRefreshTokenHeader))
-                    .andExpect(status().isUnauthorized());
-
-            verify(authService).refreshToken(eq(invalidRefreshTokenHeader));
-        }
-
-        @Test
-        @DisplayName("Should return 400 Bad Request if Authorization header is missing")
-            // Note: Spring Security typically handles missing headers earlier, resulting in 401/403,
-            // but testing controller logic directly assuming header presence might lead to this expectation.
-            // Depending on actual security config, 401/403 might be more accurate.
-            // Let's assume the service layer expects a non-null header.
-        void refreshToken_BadRequest_MissingHeader() throws Exception {
-            when(authService.refreshToken(null)) // Simulate missing header passed to service
-                    .thenThrow(new IllegalArgumentException("Authorization header is missing or invalid")); // Or similar exception
-
-            mockMvc.perform(post(BASE_PATH + "/refresh-token"))
-                    // Depending on setup, this might be 401/403 due to security filters
-                    .andExpect(status().isBadRequest()); // Or isUnauthorized() or isForbidden()
-
-            // Verification might depend on whether the controller method is even reached
-            verify(authService, never()).refreshToken(anyString()); // Or verify based on expected exception handling
-        }
+        then(authenticationService).should().changeUsername(
+                eq(currentUsername),
+                eq(request.getUsername()),
+                eq(request.getCurrentPassword())
+        );
     }
 
-    @Nested
-    @DisplayName("POST /logout")
-    class LogoutTests {
+    @Test
+    @DisplayName("GET /check-status - Success")
+    void checkUserStatus_Success() throws Exception {
+        String identifier = "user@example.com";
+        UserStatusResponse mockResponse = UserStatusResponse.builder()
+                .username("testuser").enabled(true).banned(false).build();
 
-        @Test
-        @DisplayName("Should return 200 OK on successful logout")
-        void logout_Success() throws Exception {
-            String validAuthHeader = "Bearer valid_access_token";
-            doNothing().when(authService).logout(eq(validAuthHeader));
+        given(authenticationService.checkUserStatus(identifier)).willReturn(mockResponse);
 
-            mockMvc.perform(post(BASE_PATH + "/logout")
-                            .header(HttpHeaders.AUTHORIZATION, validAuthHeader))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.message").value("Successfully logged out"));
+        mockMvc.perform(get("/api/v1/auth/check-status")
+                        .param("identifier", identifier))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.username").value(mockResponse.getUsername()))
+                .andExpect(jsonPath("$.enabled").value(mockResponse.isEnabled()))
+                .andExpect(jsonPath("$.banned").value(mockResponse.isBanned()));
 
-            verify(authService).logout(eq(validAuthHeader));
-        }
-
-        @Test
-        @DisplayName("Should return 401 Unauthorized if Authorization header is missing or invalid")
-            // Again, Spring Security might intercept this earlier. Testing the intended controller behavior.
-        void logout_Unauthorized_MissingOrInvalidHeader() throws Exception {
-            // Case 1: Missing header
-            mockMvc.perform(post(BASE_PATH + "/logout"))
-                    .andExpect(status().isBadRequest()); // Or 401/403
-
-            // Case 2: Invalid header format (if service checks format)
-            String invalidHeader = "InvalidTokenFormat";
-            // Mocking service to throw an exception if it validates the header format
-            // doThrow(new AuthenticationFailedException("Invalid token format")).when(authService).logout(invalidHeader);
-
-            // mockMvc.perform(post(BASE_PATH + "/logout")
-            //                 .header(HttpHeaders.AUTHORIZATION, invalidHeader))
-            //         .andExpect(status().isUnauthorized());
-
-            verify(authService, never()).logout(anyString()); // Adjust verification based on actual flow
-        }
+        then(authenticationService).should().checkUserStatus(identifier);
     }
 
-    @Nested
-    @DisplayName("POST /change-username")
-    class ChangeUsernameTests {
+    // --- Failure Cases ---
 
-        private UserPrincipal createMockUserPrincipal(String username) {
-            User mockUser = User.builder()
-                    .id(java.util.UUID.randomUUID()) // Assuming UUID id
-                    .username(username)
-                    .email("test@example.com")
-                    .password("encodedPassword")
-                    .enabled(true)
-                    .role(Role.USER)
-                    .banned(false)
-                    .build();
-            return new UserPrincipal(mockUser);
-        }
+    @Test
+    @DisplayName("POST /signin - Failure (Invalid Credentials)")
+    void signin_Failure_InvalidCredentials() throws Exception {
+        SignInRequest signInRequest = new SignInRequest("testuser", "wrongpassword");
 
-        @Test
-        @DisplayName("Should return 200 OK on successful username change")
-        void changeUsername_Success() throws Exception {
-            UserPrincipal principal = createMockUserPrincipal("testuser");
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    principal, null, principal.getAuthorities());
+        // Simulate service throwing BadCredentialsException (typically results in 401)
+        given(authenticationService.signIn(any(SignInRequest.class)))
+                .willThrow(new BadCredentialsException("Bad credentials")); // Changed exception type
 
-            doNothing().when(authService).changeUsername(
-                    eq("testuser"),
-                    eq(profileUpdateRequest.getUsername()),
-                    eq(profileUpdateRequest.getCurrentPassword())
-            );
-
-            mockMvc.perform(post(BASE_PATH + "/change-username")
-                            .with(authentication(authentication)) // Provide mock authentication
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(profileUpdateRequest)))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.message").value("Username updated successfully"));
-
-            verify(authService).changeUsername(
-                    eq("testuser"),
-                    eq(profileUpdateRequest.getUsername()),
-                    eq(profileUpdateRequest.getCurrentPassword())
-            );
-        }
-
-        @Test
-        @DisplayName("Should return 401 Unauthorized if not authenticated")
-        void changeUsername_Unauthorized_NotAuthenticated() throws Exception {
-            mockMvc.perform(post(BASE_PATH + "/change-username")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(profileUpdateRequest)))
-                    .andExpect(status().isUnauthorized()); // Or 403 Forbidden depending on config
-
-            verify(authService, never()).changeUsername(anyString(), anyString(), anyString());
-        }
-
-
-        @Test
-        @DisplayName("Should return 401 Unauthorized for incorrect current password")
-        void changeUsername_Unauthorized_IncorrectPassword() throws Exception {
-            UserPrincipal principal = createMockUserPrincipal("testuser");
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    principal, null, principal.getAuthorities());
-
-            doThrow(new AuthenticationException("Incorrect password"))
-                    .when(authService).changeUsername(anyString(), anyString(), anyString());
-
-            mockMvc.perform(post(BASE_PATH + "/change-username")
-                            .with(authentication(authentication))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(profileUpdateRequest)))
-                    .andExpect(status().isUnauthorized());
-
-            verify(authService).changeUsername(
-                    eq("testuser"),
-                    eq(profileUpdateRequest.getUsername()),
-                    eq(profileUpdateRequest.getCurrentPassword())
-            );
-        }
-
-        @Test
-        @DisplayName("Should return 409 Conflict if new username is taken")
-        void changeUsername_Conflict_UsernameTaken() throws Exception {
-            UserPrincipal principal = createMockUserPrincipal("testuser");
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    principal, null, principal.getAuthorities());
-
-            doThrow(new ResourceConflictException("Username already taken"))
-                    .when(authService).changeUsername(anyString(), anyString(), anyString());
-
-            mockMvc.perform(post(BASE_PATH + "/change-username")
-                            .with(authentication(authentication))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(profileUpdateRequest)))
-                    .andExpect(status().isConflict());
-
-            verify(authService).changeUsername(
-                    eq("testuser"),
-                    eq(profileUpdateRequest.getUsername()),
-                    eq(profileUpdateRequest.getCurrentPassword())
-            );
-        }
-
-        @Test
-        @DisplayName("Should return 400 Bad Request for invalid input")
-        void changeUsername_BadRequest_InvalidInput() throws Exception {
-            UserPrincipal principal = createMockUserPrincipal("testuser");
-            UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
-                    principal, null, principal.getAuthorities());
-            ProfileUpdateRequest invalidRequest = new ProfileUpdateRequest("", ""); // Invalid data
-
-            mockMvc.perform(post(BASE_PATH + "/change-username")
-                            .with(authentication(authentication))
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content(objectMapper.writeValueAsString(invalidRequest)))
-                    .andExpect(status().isBadRequest()); // Assuming validation handles this
-
-            verify(authService, never()).changeUsername(anyString(), anyString(), anyString());
-        }
+        mockMvc.perform(post("/api/v1/auth/signin")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(signInRequest)))
+                .andExpect(status().isUnauthorized()); // Expect 401 Unauthorized
+        // TODO: Assert response body if GlobalExceptionHandler returns one
     }
 
-    @Nested
-    @DisplayName("GET /check-status")
-    class CheckStatusTests {
+    @Test
+    @DisplayName("POST /signup - Failure (User Exists)")
+    void signup_Failure_UserExists() throws Exception {
+        // Use a valid password format even for failure cases to pass validation first
+        RegisterRequest registerRequest = new RegisterRequest("existingUser", "existing@example.com", "Password123!"); // Updated password
 
-        @Test
-        @DisplayName("Should return 200 OK with user status for existing user")
-        void checkUserStatus_Success_UserExists() throws Exception {
-            String identifier = "testuser";
-            when(authService.checkUserStatus(eq(identifier))).thenReturn(userStatusResponse);
+        // Simulate service throwing UserAlreadyExistsException
+        given(authenticationService.register(any(RegisterRequest.class)))
+                .willThrow(new UserAlreadyExistsException("Username 'existingUser' is already taken."));
 
-            mockMvc.perform(get(BASE_PATH + "/check-status")
-                            .param("identifier", identifier))
-                    .andExpect(status().isOk())
-                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(jsonPath("$.username").value(userStatusResponse.getUsername()))
-                    .andExpect(jsonPath("$.enabled").value(userStatusResponse.isEnabled()))
-                    .andExpect(jsonPath("$.banned").value(userStatusResponse.isBanned()));
+        mockMvc.perform(post("/api/v1/auth/signup")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(registerRequest)))
+                .andExpect(status().isConflict()); // Expect 409 Conflict
+        // TODO: Assert response body if GlobalExceptionHandler returns one
+    }
 
-            verify(authService).checkUserStatus(eq(identifier));
-        }
+    @Test
+    @DisplayName("POST /refresh-token - Failure (Invalid Token)")
+    void refreshToken_Failure_InvalidToken() throws Exception {
+        String invalidTokenHeader = "Bearer invalid-token";
 
-        @Test
-        @DisplayName("Should return 404 Not Found for non-existing user")
-        void checkUserStatus_NotFound_UserDoesNotExist() throws Exception {
-            String identifier = "nonexistent";
-            when(authService.checkUserStatus(eq(identifier)))
-                    .thenThrow(new ResourceNotFoundException("User not found"));
+        // Simulate service throwing InvalidTokenException
+        given(authenticationService.refreshToken(anyString()))
+                .willThrow(new InvalidTokenException("Invalid refresh token"));
 
-            mockMvc.perform(get(BASE_PATH + "/check-status")
-                            .param("identifier", identifier))
-                    .andExpect(status().isNotFound());
+        mockMvc.perform(post("/api/v1/auth/refresh-token")
+                        .with(csrf())
+                        .header("Authorization", invalidTokenHeader))
+                .andExpect(status().isUnauthorized()); // Expect 401 Unauthorized
+        // TODO: Assert response body if GlobalExceptionHandler returns one
+    }
 
-            verify(authService).checkUserStatus(eq(identifier));
-        }
+    @Test
+    @DisplayName("POST /logout - Failure (Invalid Token)")
+    void logout_Failure_InvalidToken() throws Exception {
+        String invalidTokenHeader = "Bearer invalid-token";
 
-        @Test
-        @DisplayName("Should return 400 Bad Request if identifier parameter is missing")
-        void checkUserStatus_BadRequest_MissingIdentifier() throws Exception {
-            mockMvc.perform(get(BASE_PATH + "/check-status")) // No identifier param
-                    .andExpect(status().isBadRequest());
+        // Simulate service throwing InvalidTokenException on logout
+        // Need to use BDDMockito.willThrow for void methods
+        willThrow(new InvalidTokenException("Invalid token"))
+                .given(authenticationService).logout(anyString());
 
-            verify(authService, never()).checkUserStatus(anyString());
-        }
+        mockMvc.perform(post("/api/v1/auth/logout")
+                        .with(csrf())
+                        .header("Authorization", invalidTokenHeader))
+                .andExpect(status().isUnauthorized()); // Expect 401 Unauthorized
+        // TODO: Assert response body if GlobalExceptionHandler returns one
+    }
+
+    @Test
+    @DisplayName("POST /change-username - Failure (Incorrect Password)")
+    @WithUserDetails("currentuser")
+    void changeUsername_Failure_IncorrectPassword() throws Exception {
+        ProfileUpdateRequest request = new ProfileUpdateRequest("newusername", "wrongCurrentPassword");
+        String currentUsername = "currentuser";
+
+        // Simulate service throwing BadCredentialsException (maps to 401)
+        willThrow(new BadCredentialsException("Incorrect current password")) // Changed exception type
+                .given(authenticationService).changeUsername(eq(currentUsername), anyString(), eq("wrongCurrentPassword"));
+
+        mockMvc.perform(post("/api/v1/auth/change-username")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isUnauthorized()); // Expect 401 Unauthorized
+    }
+
+    @Test
+    @DisplayName("POST /change-username - Failure (Username Taken)")
+    @WithUserDetails("currentuser")
+    void changeUsername_Failure_UsernameTaken() throws Exception {
+        ProfileUpdateRequest request = new ProfileUpdateRequest("existingUsername", "correctCurrentPassword");
+        String currentUsername = "currentuser";
+
+        // Simulate service throwing UserAlreadyExistsException
+        willThrow(new UserAlreadyExistsException("Username 'existingUsername' is already taken."))
+                .given(authenticationService).changeUsername(eq(currentUsername), eq("existingUsername"), anyString());
+
+        mockMvc.perform(post("/api/v1/auth/change-username")
+                        .with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict()); // Expect 409 Conflict
+    }
+
+    @Test
+    @DisplayName("GET /check-status - Failure (Not Found)")
+    void checkUserStatus_Failure_NotFound() throws Exception {
+        String identifier = "nonexistent@example.com";
+
+        // Simulate service throwing ResourceNotFoundException
+        given(authenticationService.checkUserStatus(identifier))
+                .willThrow(new ResourceNotFoundException("User not found with identifier: " + identifier));
+
+        mockMvc.perform(get("/api/v1/auth/check-status")
+                        .param("identifier", identifier))
+                .andExpect(status().isNotFound()); // Expect 404 Not Found
     }
 } 

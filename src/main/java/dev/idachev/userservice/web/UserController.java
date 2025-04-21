@@ -83,12 +83,12 @@ public class UserController {
             @RequestParam Role role) {
         log.info("Admin request to update role for user {} to {}", userId, role);
         User updatedUser = userService.updateUserRole(userId, role);
-        boolean tokenInvalidationSucceeded = true;
+        // TODO: Implement actual token invalidation logic if needed
         RoleUpdateResponse response = RoleUpdateResponse.success(
                 updatedUser.getId(),
                 updatedUser.getUsername(),
                 updatedUser.getRole(),
-                tokenInvalidationSucceeded 
+                true // Pass true directly, assuming invalidation is intended/handled elsewhere for now
         );
         return ResponseEntity.ok(response);
     }

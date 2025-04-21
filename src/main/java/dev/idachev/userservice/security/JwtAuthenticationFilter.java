@@ -46,7 +46,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // Authentication endpoints
             "/api/v1/auth/signin",
             "/api/v1/auth/signup",
-            "/api/v1/auth/logout",
             "/api/v1/auth/refresh-token",
             "/api/v1/auth/check-status",
 
