@@ -267,5 +267,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Related Repositories
 
-- [FE-savorAI](https://github.com/yourusername/FE-savorAI) - Frontend application
-- [recipe-service-SavorAI](https://github.com/yourusername/recipe-service-SavorAI) - Recipe management service 
+- [FE-savorAI](https://github.com/Dachev1/FE-savorAI) - Frontend application
+- [recipe-service-SavorAI](https://github.com/Dachev1/recipe-service-SavorAI) - Recipe management service 
