@@ -1,6 +1,12 @@
 # SavorAI - User Service
 
+## Related Repositories
+
+- [FE-savorAI](https://github.com/Dachev1/FE-savorAI) - Frontend application
+- [recipe-service-SavorAI](https://github.com/Dachev1/recipe-service-SavorAI) - Recipe management service 
+
 ## Overview
+
 The User Service is a foundational microservice in the SavorAI platform, responsible for user authentication, authorization, and user profile management. Built with Spring Boot and Java, this service provides secure and scalable user management capabilities for the entire SavorAI ecosystem.
 =======
 This service handles user registration, login, profile management, authorization, and potentially other user-related operations within the SavorAI ecosystem. It utilizes Spring Boot 3 with Java 17, leveraging JWT for secure authentication and JPA for data persistence.
@@ -16,7 +22,6 @@ This service handles user registration, login, profile management, authorization
 *   [Running Tests](#running-tests)
 *   [API Reference](#api-reference)
 *   [Contributing](#contributing)
->>>>>>> 659fb334fb393a8709e2b981a34e3ee62d300907
 
 ## Features
 
@@ -264,8 +269,3 @@ The service can be deployed in various environments:
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Related Repositories
-
-- [FE-savorAI](https://github.com/Dachev1/FE-savorAI) - Frontend application
-- [recipe-service-SavorAI](https://github.com/Dachev1/recipe-service-SavorAI) - Recipe management service 
