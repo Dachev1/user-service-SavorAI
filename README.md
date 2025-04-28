@@ -2,7 +2,23 @@
 
 ## Overview
 
+<<<<<<< HEAD
 The User Service is a foundational microservice in the SavorAI platform, responsible for user authentication, authorization, and user profile management. Built with Spring Boot and Java, this service provides secure and scalable user management capabilities for the entire SavorAI ecosystem.
+=======
+This service handles user registration, login, profile management, authorization, and potentially other user-related operations within the SavorAI ecosystem. It utilizes Spring Boot 3 with Java 17, leveraging JWT for secure authentication and JPA for data persistence.
+
+## Table of Contents
+
+*   [Features](#features)
+*   [Tech Stack](#tech-stack)
+*   [Prerequisites](#prerequisites)
+*   [Installation](#installation)
+*   [Configuration](#configuration)
+*   [Running the Application](#running-the-application)
+*   [Running Tests](#running-tests)
+*   [API Reference](#api-reference)
+*   [Contributing](#contributing)
+>>>>>>> 659fb334fb393a8709e2b981a34e3ee62d300907
 
 ## Features
 
