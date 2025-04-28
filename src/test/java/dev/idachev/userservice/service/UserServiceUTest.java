@@ -1,23 +1,29 @@
 package dev.idachev.userservice.service;
 
-import dev.idachev.userservice.exception.OperationForbiddenException;
-import dev.idachev.userservice.exception.ResourceNotFoundException;
-import dev.idachev.userservice.web.mapper.DtoMapper;
-import dev.idachev.userservice.web.mapper.EntityMapper;
-import dev.idachev.userservice.model.Role;
-import dev.idachev.userservice.model.User;
-import dev.idachev.userservice.repository.UserRepository;
-import dev.idachev.userservice.web.dto.RegisterRequest;
-import dev.idachev.userservice.web.dto.UserResponse;
-import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
-import dev.idachev.userservice.web.dto.UsernameAvailabilityResponse;
-import dev.idachev.userservice.web.dto.UserStatsResponse;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
@@ -29,16 +35,18 @@ import org.springframework.cache.Cache;
 import org.springframework.cache.CacheManager;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
-import org.mockito.ArgumentCaptor;
+import dev.idachev.userservice.exception.OperationForbiddenException;
+import dev.idachev.userservice.exception.ResourceNotFoundException;
+import dev.idachev.userservice.model.Role;
+import dev.idachev.userservice.model.User;
+import dev.idachev.userservice.repository.UserRepository;
+import dev.idachev.userservice.web.dto.ProfileUpdateRequest;
+import dev.idachev.userservice.web.dto.RegisterRequest;
+import dev.idachev.userservice.web.dto.UserResponse;
+import dev.idachev.userservice.web.dto.UserStatsResponse;
+import dev.idachev.userservice.web.dto.UsernameAvailabilityResponse;
+import dev.idachev.userservice.web.mapper.DtoMapper;
+import dev.idachev.userservice.web.mapper.EntityMapper;
 
 /**
  * Unit tests for {@link UserService}.
@@ -225,7 +233,8 @@ class UserServiceUTest {
 
             // Verify interactions
             verify(verificationService, times(1)).generateVerificationToken();
-            entityMapperMockedStatic.verify(() -> EntityMapper.mapToNewUser(request, passwordEncoder, verificationToken), times(1));
+            entityMapperMockedStatic
+                    .verify(() -> EntityMapper.mapToNewUser(request, passwordEncoder, verificationToken), times(1));
             verify(userRepository, times(1)).save(newUserMapped); // Verify save was called with the correct object
         }
     }
@@ -242,12 +251,16 @@ class UserServiceUTest {
             UUID userId2 = UUID.randomUUID();
             LocalDateTime now = LocalDateTime.now();
 
-            User user1 = User.builder().id(userId1).username("user1").email("user1@test.com").role(Role.USER).enabled(true).createdOn(now).updatedOn(now).build();
-            User user2 = User.builder().id(userId2).username("user2").email("user2@test.com").role(Role.ADMIN).enabled(true).createdOn(now).updatedOn(now).build();
+            User user1 = User.builder().id(userId1).username("user1").email("user1@test.com").role(Role.USER)
+                    .enabled(true).createdOn(now).updatedOn(now).build();
+            User user2 = User.builder().id(userId2).username("user2").email("user2@test.com").role(Role.ADMIN)
+                    .enabled(true).createdOn(now).updatedOn(now).build();
             List<User> users = List.of(user1, user2);
 
-            UserResponse response1 = UserResponse.builder().id(userId1).username("user1").email("user1@test.com").role(Role.USER.name()).enabled(true).createdOn(now).build();
-            UserResponse response2 = UserResponse.builder().id(userId2).username("user2").email("user2@test.com").role(Role.ADMIN.name()).enabled(true).createdOn(now).build();
+            UserResponse response1 = UserResponse.builder().id(userId1).username("user1").email("user1@test.com")
+                    .role(Role.USER.name()).enabled(true).createdOn(now).build();
+            UserResponse response2 = UserResponse.builder().id(userId2).username("user2").email("user2@test.com")
+                    .role(Role.ADMIN.name()).enabled(true).createdOn(now).build();
             List<UserResponse> expectedResponses = List.of(response1, response2);
 
             // Mock repository call
@@ -312,54 +325,46 @@ class UserServiceUTest {
                     .build();
         }
 
-        // Helper method to mock SecurityContext to control isCurrentUser outcome
-        // This is a simplified approach. For complex security testing, consider spring-security-test utils.
-        private void mockSecurityContext(boolean isCurrentUserResult) {
-            // We can spy on the service to mock the isCurrentUser check directly for simplicity
-            // Or use SecurityContextHolder mocking (more complex)
-            // For now, let's assume we can control this via a direct mock/spy if needed.
-            // We will mock the behavior directly in the test for now.
-        }
-
         @Test
         @DisplayName("Should update user role successfully when user exists and not self-update")
         void updateUserRole_whenUserExistsAndNotSelfUpdate_shouldUpdateRoleAndInvalidateTokens() {
             // Given
             Role newRole = Role.ADMIN;
-            User updatedUser = existingUser.toBuilder().role(newRole).build(); // User after role update
-            User savedUser = updatedUser; // Assume save returns the same object or mock accordingly
-
             // Mock the check: assume the user being updated is NOT the current user
-            // Instead of complex SecurityContext mocking, we can sometimes spy the service if needed.
-            // Here, we rely on the `findById` mock returning a user whose ID won't match the *implicit* current user.
-            // A better approach might involve mocking SecurityContextHolder or refactoring isCurrentUser.
+            // Instead of complex SecurityContext mocking, we can sometimes spy the service
+            // if needed.
+            // Here, we rely on the `findById` mock returning a user whose ID won't match
+            // the *implicit* current user.
+            // A better approach might involve mocking SecurityContextHolder or refactoring
+            // isCurrentUser.
             // For this test, we assume the check passes implicitly by not throwing.
 
             when(userRepository.findById(userId)).thenReturn(Optional.of(existingUser));
-            when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0)); // Return the saved user
+            when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0)); // Return
+                                                                                                            // the saved
+                                                                                                            // user
             // No exception expected from tokenService.invalidateUserTokens
             doNothing().when(tokenService).invalidateUserTokens(userId);
-            // Mock cache eviction (simplified: assume evictCollectionCaches works if called)
-            // If evictCollectionCaches was public/protected or we spied, we could verify it.
+            // Mock cache eviction (simplified: assume evictCollectionCaches works if
+            // called)
+            // If evictCollectionCaches was public/protected or we spied, we could verify
+            // it.
             // Alternatively, mock CacheManager interactions if needed.
 
             // When
-            User result = userService.updateUserRole(userId, newRole);
+            userService.updateUserRole(userId, newRole);
 
             // Then
-            assertThat(result).isNotNull();
-            assertThat(result.getId()).isEqualTo(userId);
-            assertThat(result.getRole()).isEqualTo(newRole);
-
-            // Verify interactions
             verify(userRepository, times(1)).findById(userId);
-            verify(userRepository, times(1)).save(argThat(user -> user.getId().equals(userId) && user.getRole().equals(newRole)));
+            verify(userRepository, times(1))
+                    .save(argThat(user -> user.getId().equals(userId) && user.getRole().equals(newRole)));
             verify(tokenService, times(1)).invalidateUserTokens(userId);
             // Verify cache eviction happened (indirectly, or mock CacheManager)
             // Example: if evictCollectionCaches clears specific caches:
             // Cache usersCache = mock(Cache.class);
             // when(cacheManager.getCache("users")).thenReturn(usersCache);
-            // verify(usersCache, times(1)).clear(); // Adjust based on actual evictCollectionCaches implementation
+            // verify(usersCache, times(1)).clear(); // Adjust based on actual
+            // evictCollectionCaches implementation
         }
 
         @Test
@@ -410,7 +415,8 @@ class UserServiceUTest {
             verify(tokenService, never()).invalidateUserTokens(any(UUID.class));
         }
 
-        // Add test for case where tokenService.invalidateUserTokens throws an exception? (Depends on desired behavior)
+        // Add test for case where tokenService.invalidateUserTokens throws an
+        // exception? (Depends on desired behavior)
     }
 
     @Nested
@@ -461,8 +467,10 @@ class UserServiceUTest {
 
             // Verify interactions
             verify(userRepository, times(1)).findById(targetUserId);
-            verify(userRepository, times(1)).save(argThat(user -> user.getId().equals(targetUserId) && user.isBanned()));
-            verify(tokenService, times(1)).invalidateUserTokens(targetUserId); // Tokens should be invalidated when banning
+            verify(userRepository, times(1))
+                    .save(argThat(user -> user.getId().equals(targetUserId) && user.isBanned()));
+            verify(tokenService, times(1)).invalidateUserTokens(targetUserId); // Tokens should be invalidated when
+                                                                               // banning
             // Verify cache eviction
         }
 
@@ -493,8 +501,10 @@ class UserServiceUTest {
 
             // Verify interactions
             verify(userRepository, times(1)).findById(targetUserId);
-            verify(userRepository, times(1)).save(argThat(user -> user.getId().equals(targetUserId) && !user.isBanned()));
-            verify(tokenService, never()).invalidateUserTokens(any(UUID.class)); // Tokens should NOT be invalidated when unbanning
+            verify(userRepository, times(1))
+                    .save(argThat(user -> user.getId().equals(targetUserId) && !user.isBanned()));
+            verify(tokenService, never()).invalidateUserTokens(any(UUID.class)); // Tokens should NOT be invalidated
+                                                                                 // when unbanning
             // Verify cache eviction
         }
 
@@ -547,7 +557,8 @@ class UserServiceUTest {
             String username = "testuser";
             UUID userId = UUID.randomUUID();
             User mockUser = User.builder().id(userId).username(username).email("test@test.com").build();
-            UserResponse expectedResponse = UserResponse.builder().id(userId).username(username).email("test@test.com").build();
+            UserResponse expectedResponse = UserResponse.builder().id(userId).username(username).email("test@test.com")
+                    .build();
 
             when(userRepository.findByUsername(username)).thenReturn(Optional.of(mockUser));
             dtoMapperMockedStatic.when(() -> DtoMapper.mapToUserResponse(mockUser)).thenReturn(expectedResponse);
@@ -780,7 +791,7 @@ class UserServiceUTest {
                     .currentPassword("ignored")
                     .build();
 
-             UserResponse expectedResponse = UserResponse.builder()
+            UserResponse expectedResponse = UserResponse.builder()
                     .id(currentUser.getId())
                     .username(currentUsername)
                     .email(currentUserEmail)
@@ -788,7 +799,8 @@ class UserServiceUTest {
                     .build();
 
             when(userRepository.findByUsername(currentUsername)).thenReturn(Optional.of(currentUser));
-            // Assume save might still be called even if no change, depending on implementation.
+            // Assume save might still be called even if no change, depending on
+            // implementation.
             // If save is conditional, use verify(..., never()).save(...)
             when(userRepository.save(any(User.class))).thenReturn(currentUser);
             dtoMapperMockedStatic.when(() -> DtoMapper.mapToUserResponse(currentUser)).thenReturn(expectedResponse);
@@ -842,16 +854,16 @@ class UserServiceUTest {
             // Verify no cache evictions happened
             verify(usersCache, never()).evict(any());
             verify(usernamesCache, never()).evict(any());
-             verify(usersCache, never()).clear();
+            verify(usersCache, never()).clear();
             verify(usernamesCache, never()).clear();
         }
 
-         @Test
+        @Test
         @DisplayName("Should throw ResourceNotFoundException when current user cannot be found")
         void updateProfile_whenCurrentUserNotFound_shouldThrowResourceNotFoundException() {
             // Given
             String nonExistentUsername = "ghost";
-             ProfileUpdateRequest request = ProfileUpdateRequest.builder()
+            ProfileUpdateRequest request = ProfileUpdateRequest.builder()
                     .username("newname")
                     .currentPassword("ignored")
                     .build();
@@ -859,7 +871,7 @@ class UserServiceUTest {
             when(userRepository.findByUsername(nonExistentUsername)).thenReturn(Optional.empty());
 
             // When & Then
-             assertThatThrownBy(() -> userService.updateProfile(nonExistentUsername, request))
+            assertThatThrownBy(() -> userService.updateProfile(nonExistentUsername, request))
                     .isInstanceOf(ResourceNotFoundException.class)
                     .hasMessageContaining("User not found with username: " + nonExistentUsername);
 
@@ -1069,4 +1081,4 @@ class UserServiceUTest {
     }
 
     // UserService public methods should now be covered by tests.
-} 
+}

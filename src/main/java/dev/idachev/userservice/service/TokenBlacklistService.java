@@ -1,139 +1,183 @@
 package dev.idachev.userservice.service;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import jakarta.annotation.PreDestroy;
 
 /**
- * Service for managing blacklisted JWT tokens and user invalidations using Redis.
+ * Manages JWT token blacklist and user invalidations
  */
 @Service
 @Slf4j
-@RequiredArgsConstructor
 public class TokenBlacklistService {
 
-    // Prefix for keys storing invalidated user tokens
-    private static final String USER_INVALIDATION_KEY_PREFIX = "invalidated_user::";
-    // Prefix for keys storing blacklisted JWTs
-    private static final String JWT_BLACKLIST_KEY_PREFIX = "jwt_blacklist::";
-    // Default duration for user invalidation marker (e.g., 30 days) - consider making configurable
-    private static final Duration USER_INVALIDATION_DURATION = Duration.ofDays(30);
-    // Fallback blacklist duration if JWT expiry calculation fails
+    private static final String USER_PREFIX = "invalidated_user::";
+    private static final String JWT_PREFIX = "jwt_blacklist::";
+    private static final Duration USER_INVALIDATION_DURATION = Duration.ofHours(24);
     private static final Duration FALLBACK_BLACKLIST_DURATION = Duration.ofHours(1);
+    private static final Duration CLEANUP_INTERVAL = Duration.ofMinutes(15);
 
-    private final StringRedisTemplate redisTemplate;
-    // private final JwtConfig jwtConfig; // Inject if default JWT expiration needed as fallback
+    private final Map<String, Instant> blacklistedTokens = new ConcurrentHashMap<>();
+    private final Map<String, Instant> invalidatedUsers = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService cleanupExecutor;
+
+    public TokenBlacklistService() {
+        this.cleanupExecutor = new ScheduledThreadPoolExecutor(1);
+        this.cleanupExecutor.scheduleAtFixedRate(
+            this::cleanupExpiredEntries,
+            CLEANUP_INTERVAL.toMillis(),
+            CLEANUP_INTERVAL.toMillis(),
+            TimeUnit.MILLISECONDS
+        );
+        log.info("Token blacklist service initialized");
+    }
 
     /**
-     * Blacklists a specific JWT until its natural expiry time.
-     *
-     * @param jwt                   The raw JWT string to blacklist.
-     * @param expiryTimestampMillis The original expiry timestamp of the JWT in milliseconds since epoch.
+     * Blacklists a JWT until its expiry time
      */
     public void blacklistJwt(String jwt, long expiryTimestampMillis) {
         if (jwt == null || jwt.isBlank()) {
-            log.warn("Attempted to blacklist null or blank JWT");
-            return; // Or throw IllegalArgumentException
+            log.warn("Cannot blacklist null/blank JWT");
+            return;
         }
 
-        long ttlMillis = expiryTimestampMillis - System.currentTimeMillis();
         Duration duration;
-
+        long ttlMillis = expiryTimestampMillis - System.currentTimeMillis();
+        
         if (ttlMillis > 0) {
             duration = Duration.ofMillis(ttlMillis);
-            // Add a small buffer to account for clock skew or processing time? Optional.
         } else {
-            // Token already expired or expiry is invalid, blacklist for a short fallback duration
-            log.warn("JWT expiry timestamp {} is in the past or invalid. Blacklisting for fallback duration: {}",
-                    expiryTimestampMillis, FALLBACK_BLACKLIST_DURATION);
+            log.warn("Invalid JWT expiry timestamp {}", expiryTimestampMillis);
             duration = FALLBACK_BLACKLIST_DURATION;
         }
 
-        // Ensure duration is not excessively long (sanity check, optional)
-        // Duration maxDuration = Duration.ofDays(someConfiguredMaxDays); 
-        // if (duration.compareTo(maxDuration) > 0) { duration = maxDuration; } 
-
         try {
-            String key = JWT_BLACKLIST_KEY_PREFIX + jwt;
-            // Set a value (can be empty string or "1") with the calculated TTL
-            redisTemplate.opsForValue().set(key, "blacklisted", duration);
-            log.debug("JWT blacklisted with TTL {}: {}", duration, key);
+            blacklistedTokens.put(JWT_PREFIX + jwt, Instant.now().plus(duration));
         } catch (Exception e) {
-            log.error("Failed to blacklist JWT in Redis: {}", e.getMessage(), e);
-            // Decide if exception should be propagated
-            // throw new RuntimeException("Failed to blacklist token", e);
+            log.error("Failed to blacklist JWT: {}", e.getMessage());
         }
     }
 
     /**
-     * Checks if a specific JWT is present in the blacklist (i.e., has an entry in Redis).
-     *
-     * @param jwt The raw JWT string to check.
-     * @return true if the JWT is blacklisted, false otherwise.
+     * Checks if a JWT is blacklisted
      */
     public boolean isJwtBlacklisted(String jwt) {
-        if (jwt == null || jwt.isBlank()) {
-            return false; // Cannot be blacklisted
-        }
+        if (jwt == null || jwt.isBlank()) return false;
+        
         try {
-            String key = JWT_BLACKLIST_KEY_PREFIX + jwt;
-            Boolean hasKey = redisTemplate.hasKey(key);
-            return Boolean.TRUE.equals(hasKey);
+            String key = JWT_PREFIX + jwt;
+            Instant expiry = blacklistedTokens.get(key);
+            
+            if (expiry != null) {
+                if (expiry.isAfter(Instant.now())) {
+                    return true;
+                } else {
+                    blacklistedTokens.remove(key);
+                    return false;
+                }
+            }
+            return false;
         } catch (Exception e) {
-            log.error("Failed to check JWT blacklist status in Redis: {}", e.getMessage(), e);
-            // Fail safe? Assume blacklisted on error?
-            // Or return false and rely on standard expiry? Returning false seems safer.
+            log.error("JWT blacklist check failed: {}", e.getMessage());
             return false;
         }
     }
 
     /**
-     * Invalidates all tokens for a specific user by adding a marker in Redis.
-     *
-     * @param userId The ID of the user whose tokens should be invalidated.
+     * Invalidates all tokens for a user
      */
     public void invalidateUserTokens(String userId) {
         if (userId == null || userId.isBlank()) {
-            log.warn("Attempted to invalidate tokens for null or blank user ID");
-            return; // Or throw IllegalArgumentException
+            log.warn("Cannot invalidate null/blank user ID");
+            return;
         }
 
         try {
-            String key = USER_INVALIDATION_KEY_PREFIX + userId;
-            redisTemplate.opsForValue().set(key, "invalidated", USER_INVALIDATION_DURATION);
-            log.debug("User token invalidation marker set for user {} with TTL {}", userId, USER_INVALIDATION_DURATION);
+            invalidatedUsers.put(USER_PREFIX + userId, 
+                Instant.now().plus(USER_INVALIDATION_DURATION));
         } catch (Exception e) {
-            log.error("Failed to set user token invalidation marker in Redis for user {}: {}", userId, e.getMessage(), e);
-            // Decide if exception should be propagated
-            // throw new RuntimeException("Failed to invalidate user tokens", e);
+            log.error("Failed to invalidate user tokens: {}", e.getMessage());
         }
     }
 
     /**
-     * Checks if a user's tokens have been globally invalidated via a marker in Redis.
-     *
-     * @param userId The ID of the user to check.
-     * @return true if the user's tokens are marked as invalidated, false otherwise.
+     * Checks if a user's tokens are invalidated
      */
     public boolean isUserInvalidated(String userId) {
-        if (userId == null || userId.isBlank()) {
-            return false;
-        }
+        if (userId == null || userId.isBlank()) return false;
+        
         try {
-            String key = USER_INVALIDATION_KEY_PREFIX + userId;
-            Boolean hasKey = redisTemplate.hasKey(key);
-            return Boolean.TRUE.equals(hasKey);
+            String key = USER_PREFIX + userId;
+            Instant expiry = invalidatedUsers.get(key);
+            
+            if (expiry != null) {
+                if (expiry.isAfter(Instant.now())) {
+                    return true;
+                } else {
+                    invalidatedUsers.remove(key);
+                    return false;
+                }
+            }
+            return false;
         } catch (Exception e) {
-            log.error("Failed to check user token invalidation status in Redis for user {}: {}", userId, e.getMessage(), e);
-            // Fail safe? Assume invalidated on error?
-            // Returning false seems safer, relying on JWT expiry/blacklist.
+            log.error("User invalidation check failed: {}", e.getMessage());
             return false;
         }
     }
 
-    // Cleanup executor, maps, PreDestroy logic, etc. removed
-    // forceCleanupExpiredTokens removed
+    /**
+     * Cleans up expired entries
+     */
+    private void cleanupExpiredEntries() {
+        try {
+            Instant now = Instant.now();
+            int tokenCount = 0;
+            int userCount = 0;
+            
+            for (Map.Entry<String, Instant> entry : blacklistedTokens.entrySet()) {
+                if (entry.getValue().isBefore(now)) {
+                    blacklistedTokens.remove(entry.getKey());
+                    tokenCount++;
+                }
+            }
+            
+            for (Map.Entry<String, Instant> entry : invalidatedUsers.entrySet()) {
+                if (entry.getValue().isBefore(now)) {
+                    invalidatedUsers.remove(entry.getKey());
+                    userCount++;
+                }
+            }
+            
+            if (tokenCount > 0 || userCount > 0) {
+                log.debug("Cleaned {} tokens and {} users", tokenCount, userCount);
+            }
+        } catch (Exception e) {
+            log.error("Cleanup error: {}", e.getMessage());
+        }
+    }
+    
+    /**
+     * Shutdown cleanup
+     */
+    @PreDestroy
+    public void shutdown() {
+        if (cleanupExecutor != null) {
+            try {
+                cleanupExecutor.shutdown();
+                if (!cleanupExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    cleanupExecutor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
 } 

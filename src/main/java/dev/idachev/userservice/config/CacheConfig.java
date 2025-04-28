@@ -20,10 +20,10 @@ public class CacheConfig {
         ConcurrentMapCacheManager cacheManager = new ConcurrentMapCacheManager();
         cacheManager.setCacheNames(Arrays.asList(
             "users", 
-            "profiles", 
-            "userDetails", 
-            "usernames",
-            "tokens"
+            "usernames", 
+            "userStats",
+            "jwt_blacklist",
+            "user_invalidations"
         ));
         return cacheManager;
     }

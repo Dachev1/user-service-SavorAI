@@ -7,7 +7,7 @@ spring:
   application:
     name: user-service
   
-  # Import environment variables from .properties file
+  # Import environment variables
   config:
     import: optional:classpath:.env.properties
   
@@ -25,10 +25,8 @@ spring:
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
-        globally_quoted_identifiers: true
-        globally_quoted_identifiers_skip_column_definitions: true
   
-  # Email configuration for contact form
+  # Email configuration
   mail:
     host: smtp.gmail.com
     port: 587
@@ -40,21 +38,33 @@ spring:
           auth: true
           starttls:
             enable: true
-
-# Frontend application configuration
+            
+# Application configuration  
 app:
-  # Service URL (used for email verification links)
   service:
     url: http://localhost:8081
   frontend:
     url: http://localhost:5173
 
+# Cache Configuration
+cache:
+  type: caffeine
+  cache-names: users,usernames,userStats,jwt_blacklist,user_invalidations
+  caffeine:
+    spec: maximumSize=500,expireAfterAccess=30m # Adjust spec as needed
+
+# Custom Email Service Configuration
+email-service-config:
+  app-name: ${spring.application.name} # Reference application name
+  from-address: ${MAIL_USERNAME} # Reference from .env
+  contact-recipient: ${CONTACT_RECIPIENT:your-contact-recipient@example.com} # Reference from .env (add CONTACT_RECIPIENT=... to .env) or uses default
+  service-base-url: ${app.service.url} # Reference app.service.url
+  packages-to-scan: dev.idachev.userservice.web
+
 # Security configuration
 jwt:
   secret: ${JWT_SECRET}
   expiration: 86400000 # 24 hours
-  blacklist:
-    cleanup-interval: 3600 # Cleanup interval in seconds (1 hour)
 
 # CORS configuration
 cors:
@@ -63,18 +73,15 @@ cors:
   allowed-headers: Authorization,Content-Type,X-Requested-With,X-Request-ID
   exposed-headers: X-Request-ID
   allow-credentials: true
-  max-age: 3600
 
 # Logging configuration
 logging:
   level:
     root: INFO
     dev.idachev.userservice: DEBUG
-    org.springframework.web: INFO
-    org.springframework.security: INFO
     org.hibernate.SQL: DEBUG
 
-# Swagger/OpenAPI configuration
+# API documentation
 springdoc:
   api-docs:
     path: /api-docs
@@ -83,4 +90,21 @@ springdoc:
     operationsSorter: method
     tagsSorter: alpha
     disable-swagger-default-url: true
-  packages-to-scan: dev.idachev.userservice.web
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,env,loggers,caches
+  endpoint:
+    health:
+      show-details: when_authorized
+      group:
+        readiness:
+          include: db # Only include db for readiness
+        liveness:
+          include: ping # Include only ping for liveness probe example
+  metrics:
+    tags:
+      application: ${spring.application.name}

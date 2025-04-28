@@ -2,13 +2,14 @@ package dev.idachev.userservice.service;
 
 import dev.idachev.userservice.exception.OperationForbiddenException;
 import dev.idachev.userservice.exception.ResourceNotFoundException;
-import dev.idachev.userservice.web.mapper.DtoMapper;
-import dev.idachev.userservice.web.mapper.EntityMapper;
+import dev.idachev.userservice.exception.UnauthorizedException;
 import dev.idachev.userservice.model.Role;
 import dev.idachev.userservice.model.User;
 import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
 import dev.idachev.userservice.web.dto.*;
+import dev.idachev.userservice.web.mapper.DtoMapper;
+import dev.idachev.userservice.web.mapper.EntityMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.Cache;
@@ -39,7 +40,6 @@ public class UserService {
     private final UserRepository userRepository;
     private final CacheManager cacheManager;
     private final PasswordEncoder passwordEncoder;
-    private final EmailService emailService;
     private final TokenService tokenService;
     private final VerificationService verificationService;
 
@@ -54,7 +54,10 @@ public class UserService {
                 verificationService.generateVerificationToken()
         );
         try {
-            return userRepository.save(newUser);
+            User savedUser = userRepository.save(newUser);
+            // Evict admin user list cache when a new user is registered
+            evictCollectionCaches();
+            return savedUser;
         } catch (Exception e) {
             log.error("Unexpected error during user registration for username {}: {}", request.username(), e.getMessage(), e);
             throw new RuntimeException("An unexpected error occurred during registration.", e);
@@ -99,13 +102,15 @@ public class UserService {
     }
 
     /**
-     * Toggles a user's ban status. Invalidates tokens if banned.
+     * Toggles a user's ban status. Doesn't immediately invalidate tokens for a smoother experience.
      * Throws ResourceNotFoundException if user not found.
      * Throws OperationForbiddenException if admin tries to ban self.
-     * Re-throws exceptions from tokenService.invalidateUserTokens.
      */
     @Transactional
-    @CacheEvict(value = {"users", "usernames"}, key = "#userId")
+    @Caching(evict = {
+        @CacheEvict(value = {"users"}, allEntries = true),
+        @CacheEvict(value = {"usernames"}, key = "#userId")
+    })
     public User toggleUserBan(UUID userId) {
         if (isCurrentUser(userId)) {
             throw new OperationForbiddenException("Admins cannot ban themselves");
@@ -121,13 +126,24 @@ public class UserService {
         }
         User savedUser = userRepository.save(user);
 
-        if (savedUser.isBanned()) {
-            tokenService.invalidateUserTokens(userId);
-        }
-
+        // Tokens are not invalidated immediately to allow for smoother UI experience
+        // The banned status will be checked on each request by JwtAuthenticationFilter
+        
+        // Force immediate cache eviction to ensure ban status is reflected in API responses
+        evictSpecificUserCaches(savedUser.getId());
         evictCollectionCaches();
 
         return savedUser;
+    }
+
+    // Add a helper method to evict specific user caches
+    private void evictSpecificUserCaches(UUID userId) {
+        Cache usersCache = cacheManager.getCache("users");
+        if (usersCache != null) {
+            usersCache.evict(userId);
+            // Also evict by the key format used in @Cacheable annotations
+            usersCache.evict("'" + userId + "'");
+        }
     }
 
     /**
@@ -324,5 +340,70 @@ public class UserService {
         if (usernamesCache != null) {
             usernamesCache.clear();
         }
+    }
+
+    /**
+     * Evict specific user caches when username is changed
+     */
+    private void evictUserCaches(UUID userId, String oldUsername, String newUsername) {
+        Cache usersCache = cacheManager.getCache("users");
+        if (usersCache != null) {
+            usersCache.evict(userId);
+            usersCache.evict("'username_' + " + oldUsername);
+            usersCache.evict("'username_' + " + newUsername);
+            usersCache.evict("'exists_username_' + " + oldUsername);
+            usersCache.evict("'exists_username_' + " + newUsername);
+        }
+
+        Cache usernamesCache = cacheManager.getCache("usernames");
+        if (usernamesCache != null) {
+            usernamesCache.evict(userId);
+        }
+
+        // Also evict collection caches
+        evictCollectionCaches();
+    }
+
+    /**
+     * Updates a user's username after validating current password
+     *
+     * @param currentUsername the user's current username
+     * @param request         the update request containing new username and current password
+     * @throws UnauthorizedException     if the password is incorrect
+     * @throws ResourceNotFoundException if the user cannot be found
+     * @throws IllegalArgumentException  if the username is already taken
+     */
+    @Transactional
+    public void updateUsername(String currentUsername, ProfileUpdateRequest request) {
+        if (currentUsername == null || request.getUsername() == null || request.getCurrentPassword() == null) {
+            throw new IllegalArgumentException("Username and password cannot be null");
+        }
+
+        if (currentUsername.equals(request.getUsername())) {
+            log.info("Username change requested for user {} but new username is the same.", currentUsername);
+            return; // No change needed
+        }
+
+        User user = userRepository.findByUsername(currentUsername)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found with username: " + currentUsername));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new UnauthorizedException("Current password is incorrect");
+        }
+
+        if (userRepository.existsByUsername(request.getUsername())) {
+            throw new IllegalArgumentException("Username already exists");
+        }
+
+        user.updateUsername(request.getUsername());
+        userRepository.save(user);
+
+        // Invalidate tokens for this user
+        tokenService.invalidateUserTokens(user.getId());
+
+        log.info("Username changed successfully for user ID: {}", user.getId());
+
+        // Evict caches
+        evictUserCaches(user.getId(), currentUsername, request.getUsername());
     }
 } 

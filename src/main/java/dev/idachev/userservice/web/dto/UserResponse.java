@@ -25,15 +25,6 @@ public class UserResponse {
     @Schema(description = "Email address", example = "john@example.com")
     private String email;
 
-    @Schema(description = "User's first name", example = "John", nullable = true)
-    private String firstName;
-
-    @Schema(description = "User's last name", example = "Doe", nullable = true)
-    private String lastName;
-
-    @Schema(description = "User's biography or description", example = "Software engineer passionate about clean code.", nullable = true)
-    private String bio;
-
     @Schema(description = "Whether the user's email is verified", example = "true")
     private boolean enabled;
 

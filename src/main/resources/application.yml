@@ -38,8 +38,15 @@ spring:
           auth: true
           starttls:
             enable: true
+            
+# Application configuration  
+app:
+  service:
+    url: http://localhost:8081
+  frontend:
+    url: http://localhost:5173
 
-# Cache Configuration (Moved under the main spring block)
+# Cache Configuration
 cache:
   type: caffeine
   cache-names: users,usernames,userStats,jwt_blacklist,user_invalidations
@@ -53,13 +60,6 @@ email-service-config:
   contact-recipient: ${CONTACT_RECIPIENT:your-contact-recipient@example.com} # Reference from .env (add CONTACT_RECIPIENT=... to .env) or uses default
   service-base-url: ${app.service.url} # Reference app.service.url
   packages-to-scan: dev.idachev.userservice.web
-
-# Application configuration
-app:
-  service:
-    url: http://localhost:8081
-  frontend:
-    url: http://localhost:5173
 
 # Security configuration
 jwt:
@@ -100,15 +100,11 @@ management:
   endpoint:
     health:
       show-details: when_authorized
-      # Exclude Redis from health checks since it's not being used
       group:
         readiness:
-          include: db # Include only DB for readiness probe example
+          include: db # Only include db for readiness
         liveness:
           include: ping # Include only ping for liveness probe example
-  health:
-    redis:
-      enabled: false # Disable Redis health indicator
   metrics:
     tags:
       application: ${spring.application.name}

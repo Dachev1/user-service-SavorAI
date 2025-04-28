@@ -5,8 +5,6 @@ import dev.idachev.userservice.repository.UserRepository;
 import dev.idachev.userservice.security.UserPrincipal;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.cache.annotation.CacheEvict;
-import org.springframework.cache.annotation.Cacheable;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
@@ -30,7 +28,6 @@ public class UserDetailsService implements org.springframework.security.core.use
      */
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "userDetails", key = "#usernameOrEmail", unless = "#result == null")
     public UserDetails loadUserByUsername(String usernameOrEmail) throws UsernameNotFoundException {
         if (usernameOrEmail == null || usernameOrEmail.trim().isEmpty()) {
             log.warn("Attempted to load user with null or empty username/email");
@@ -62,7 +59,6 @@ public class UserDetailsService implements org.springframework.security.core.use
      * Load a user by their unique ID
      */
     @Transactional(readOnly = true)
-    @Cacheable(value = "userDetails", key = "'id_' + #userId.toString()", unless = "#result == null")
     public UserDetails loadUserById(UUID userId) throws UsernameNotFoundException {
         if (userId == null) {
             log.warn("Attempted to load user with null ID");
@@ -89,14 +85,12 @@ public class UserDetailsService implements org.springframework.security.core.use
         return new UserPrincipal(user);
     }
 
-    @CacheEvict(value = "userDetails", key = "#username")
     public void clearUserDetailsCacheByUsername(String username) {
-        log.debug("Evicting userDetails cache for username: {}", username);
+        log.debug("Cache eviction not needed - caching disabled");
     }
 
-    @CacheEvict(value = "userDetails", key = "'id_' + #userId.toString()")
     public void clearUserDetailsCacheById(UUID userId) {
-        log.debug("Evicting userDetails cache for user ID: {}", userId);
+        log.debug("Cache eviction not needed - caching disabled");
     }
 
     /**
@@ -114,20 +108,6 @@ public class UserDetailsService implements org.springframework.security.core.use
             log.error("Failed to invalidate tokens for user ID {} after username change: {}", userId, e.getMessage(), e);
         }
 
-        // Option 2: Alternatively, or additionally, mark user as logged out in DB (less robust than token invalidation)
-        /*
-        try {
-            userRepository.findById(userId).ifPresent(user -> {
-                user.markAsLoggedOut();
-                userRepository.save(user);
-                log.info("Marked user ID: {} as logged out due to username change.", userId);
-            });
-        } catch (Exception e) {
-            log.error("Failed to mark user ID {} as logged out after username change: {}", userId, e.getMessage(), e);
-        }
-        */
-
-        // Manual cache eviction logic removed - should be handled by @CacheEvict on UserService.updateProfile
         log.info("Username change handling complete for user ID: {}", userId);
     }
 } 

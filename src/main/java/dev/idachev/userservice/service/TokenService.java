@@ -1,5 +1,11 @@
 package dev.idachev.userservice.service;
 
+import java.util.Date;
+import java.util.UUID;
+
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.stereotype.Service;
+
 import dev.idachev.userservice.config.JwtConfig;
 import dev.idachev.userservice.exception.AuthenticationException;
 import dev.idachev.userservice.exception.InvalidTokenException;
@@ -9,12 +15,6 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.stereotype.Service;
-
-import java.time.Duration;
-import java.util.Date;
-import java.util.UUID;
 
 /**
  * Service for JWT token management
@@ -23,10 +23,6 @@ import java.util.UUID;
 @Slf4j
 @RequiredArgsConstructor
 public class TokenService {
-
-    private static final String USER_INVALIDATION_KEY_PREFIX = "user_tokens_invalidated:";
-    // TODO: Externalize this duration via configuration (e.g., JwtConfig or application.properties)
-    private static final Duration USER_INVALIDATION_DURATION = Duration.ofDays(30);
 
     private final JwtConfig jwtConfig;
     private final TokenBlacklistService tokenBlacklistService;
@@ -198,14 +194,16 @@ public class TokenService {
                 if (user.isBanned()) {
                     // Blacklist the current token if user is banned
                     Date expiry = extractExpiration(jwtToken);
-                    if (expiry != null) blacklistToken(jwtToken, expiry); // Pass expiry
+                    if (expiry != null)
+                        blacklistToken(jwtToken, expiry); // Pass expiry
                     throw new AuthenticationException("User is banned");
                 }
 
                 if (user.getId().equals(userId)) {
                     // Blacklist the old token before issuing a new one
                     Date expiry = extractExpiration(jwtToken);
-                    if (expiry != null) blacklistToken(jwtToken, expiry); // Pass expiry
+                    if (expiry != null)
+                        blacklistToken(jwtToken, expiry); // Pass expiry
                     // Generate new token
                     return generateToken(userDetails);
                 } else {
@@ -216,7 +214,8 @@ public class TokenService {
                 throw new AuthenticationException("Invalid user principal type for token refresh");
             }
         } catch (ExpiredJwtException e) {
-            // Allow refresh even if expired? Depends on policy. Current logic requires non-expired.
+            // Allow refresh even if expired? Depends on policy. Current logic requires
+            // non-expired.
             // If refresh allowed for expired tokens, this check needs adjustment.
             throw new AuthenticationException("Token has expired", e);
         } catch (InvalidTokenException | JwtException e) {
@@ -231,7 +230,8 @@ public class TokenService {
     }
 
     /**
-     * Invalidates all tokens for a specific user by signaling the TokenBlacklistService.
+     * Invalidates all tokens for a specific user by signaling the
+     * TokenBlacklistService.
      */
     public void invalidateUserTokens(UUID userId) { // Signature kept as UUID
         if (userId == null) {
@@ -253,4 +253,4 @@ public class TokenService {
     private String extractJwtToken(String token) {
         return token != null && token.startsWith("Bearer ") ? token.substring(7) : token;
     }
-} 
+}

@@ -1,12 +1,23 @@
 package dev.idachev.userservice.service;
 
-import dev.idachev.userservice.config.JwtConfig;
-import dev.idachev.userservice.exception.AuthenticationException;
-import dev.idachev.userservice.exception.InvalidTokenException;
-import dev.idachev.userservice.model.User;
-import dev.idachev.userservice.security.UserPrincipal;
-import io.jsonwebtoken.ExpiredJwtException;
-import io.jsonwebtoken.JwtException;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
+
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
+import java.util.UUID;
+
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -18,25 +29,22 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.mockito.InOrder;
 
-import java.time.temporal.ChronoUnit;
-import java.util.Date;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
-import static org.mockito.Mockito.when;
+import dev.idachev.userservice.config.JwtConfig;
+import dev.idachev.userservice.exception.AuthenticationException;
+import dev.idachev.userservice.exception.InvalidTokenException;
+import dev.idachev.userservice.model.User;
+import dev.idachev.userservice.security.UserPrincipal;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 
 /**
  * Unit tests for {@link TokenService}.
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("TokenService Tests")
-@MockitoSettings(strictness = Strictness.LENIENT) // Lenient to avoid UnnecessaryStubbingException for unused mocks in simple tests
+@MockitoSettings(strictness = Strictness.LENIENT) // Lenient to avoid UnnecessaryStubbingException for unused mocks in
+                                                  // simple tests
 class TokenServiceUTest {
 
     @Mock
@@ -149,9 +157,9 @@ class TokenServiceUTest {
             when(jwtConfig.extractUserId(TEST_TOKEN_RAW)).thenThrow(new JwtException("Bad signature"));
 
             assertThatThrownBy(() -> tokenService.extractUserId(TEST_TOKEN_BEARER))
-                .isInstanceOf(InvalidTokenException.class)
-                .hasMessageContaining("Invalid token format while extracting user ID")
-                .hasCauseInstanceOf(JwtException.class);
+                    .isInstanceOf(InvalidTokenException.class)
+                    .hasMessageContaining("Invalid token format while extracting user ID")
+                    .hasCauseInstanceOf(JwtException.class);
 
             verify(jwtConfig).extractUserId(TEST_TOKEN_RAW);
             verifyNoMoreInteractions(jwtConfig);
@@ -165,8 +173,8 @@ class TokenServiceUTest {
             when(jwtConfig.extractUserId(TEST_TOKEN_RAW)).thenThrow(expiredException);
 
             assertThatThrownBy(() -> tokenService.extractUserId(TEST_TOKEN_BEARER))
-                .isInstanceOf(ExpiredJwtException.class)
-                .isEqualTo(expiredException);
+                    .isInstanceOf(ExpiredJwtException.class)
+                    .isEqualTo(expiredException);
 
             verify(jwtConfig).extractUserId(TEST_TOKEN_RAW);
             verifyNoMoreInteractions(jwtConfig);
@@ -289,21 +297,22 @@ class TokenServiceUTest {
         @DisplayName("Should throw IllegalArgumentException for null or empty token")
         void blacklistToken_withNullOrEmptyToken_shouldThrowIllegalArgumentException() {
             assertThatThrownBy(() -> tokenService.blacklistToken(null, TEST_EXPIRATION))
-                .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> tokenService.blacklistToken("", TEST_EXPIRATION))
-                .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalArgumentException.class);
             verifyNoInteractions(jwtConfig, tokenBlacklistService);
         }
 
         @Test
         @DisplayName("Should not propagate exceptions from blacklist service")
         void blacklistToken_whenBlacklistServiceThrows_shouldNotPropagate() {
-             String jwt = "error.jwt";
-             Date expiry = new Date();
-             doThrow(new RuntimeException("Redis error")).when(tokenBlacklistService).blacklistJwt(jwt, expiry.getTime());
+            String jwt = "error.jwt";
+            Date expiry = new Date();
+            doThrow(new RuntimeException("Redis error")).when(tokenBlacklistService).blacklistJwt(jwt,
+                    expiry.getTime());
 
-             assertThatCode(() -> tokenService.blacklistToken(jwt, expiry))
-                 .doesNotThrowAnyException();
+            assertThatCode(() -> tokenService.blacklistToken(jwt, expiry))
+                    .doesNotThrowAnyException();
 
             verify(tokenBlacklistService).blacklistJwt(jwt, expiry.getTime());
             verifyNoMoreInteractions(tokenBlacklistService);
@@ -329,22 +338,22 @@ class TokenServiceUTest {
             when(tokenBlacklistService.isJwtBlacklisted(TEST_TOKEN_RAW)).thenReturn(false);
             assertThat(tokenService.isJwtBlacklisted(TEST_TOKEN_RAW)).isFalse();
             verify(tokenBlacklistService).isJwtBlacklisted(TEST_TOKEN_RAW);
-             verifyNoMoreInteractions(tokenBlacklistService);
+            verifyNoMoreInteractions(tokenBlacklistService);
         }
 
         @Test
         @DisplayName("Should return false for null or empty token")
         void isJwtBlacklisted_withNullOrEmpty_shouldReturnFalse() {
-             assertThat(tokenService.isJwtBlacklisted(null)).isFalse();
-             assertThat(tokenService.isJwtBlacklisted("")).isFalse();
-             verifyNoInteractions(tokenBlacklistService);
+            assertThat(tokenService.isJwtBlacklisted(null)).isFalse();
+            assertThat(tokenService.isJwtBlacklisted("")).isFalse();
+            verifyNoInteractions(tokenBlacklistService);
         }
     }
 
     @Nested
     @DisplayName("isUserInvalidated Tests")
     class IsUserInvalidatedTests {
-         @Test
+        @Test
         @DisplayName("Should return true when blacklist service returns true")
         void isUserInvalidated_whenInvalidated_shouldReturnTrue() {
             when(tokenBlacklistService.isUserInvalidated(TEST_USER_ID.toString())).thenReturn(true);
@@ -353,7 +362,7 @@ class TokenServiceUTest {
             verifyNoMoreInteractions(tokenBlacklistService);
         }
 
-         @Test
+        @Test
         @DisplayName("Should return false when blacklist service returns false")
         void isUserInvalidated_whenNotInvalidated_shouldReturnFalse() {
             when(tokenBlacklistService.isUserInvalidated(TEST_USER_ID.toString())).thenReturn(false);
@@ -365,8 +374,8 @@ class TokenServiceUTest {
         @Test
         @DisplayName("Should return false for null user ID")
         void isUserInvalidated_withNullUserId_shouldReturnFalse() {
-             assertThat(tokenService.isUserInvalidated(null)).isFalse();
-             verifyNoInteractions(tokenBlacklistService);
+            assertThat(tokenService.isUserInvalidated(null)).isFalse();
+            verifyNoInteractions(tokenBlacklistService);
         }
     }
 
@@ -386,23 +395,23 @@ class TokenServiceUTest {
         @DisplayName("Should throw IllegalArgumentException for null user ID")
         void invalidateUserTokens_withNullUserId_shouldThrowIllegalArgumentException() {
             assertThatThrownBy(() -> tokenService.invalidateUserTokens(null))
-                .isInstanceOf(IllegalArgumentException.class);
+                    .isInstanceOf(IllegalArgumentException.class);
             verifyNoInteractions(tokenBlacklistService);
         }
 
         @Test
         @DisplayName("Should wrap and throw exception from blacklist service")
         void invalidateUserTokens_whenBlacklistServiceThrows_shouldWrapAndThrow() {
-             RuntimeException cause = new RuntimeException("Redis error");
-             doThrow(cause).when(tokenBlacklistService).invalidateUserTokens(TEST_USER_ID.toString());
+            RuntimeException cause = new RuntimeException("Redis error");
+            doThrow(cause).when(tokenBlacklistService).invalidateUserTokens(TEST_USER_ID.toString());
 
-             assertThatThrownBy(() -> tokenService.invalidateUserTokens(TEST_USER_ID))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("Failed to signal token invalidation for user " + TEST_USER_ID)
-                .hasCause(cause);
+            assertThatThrownBy(() -> tokenService.invalidateUserTokens(TEST_USER_ID))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("Failed to signal token invalidation for user " + TEST_USER_ID)
+                    .hasCause(cause);
 
-             verify(tokenBlacklistService).invalidateUserTokens(TEST_USER_ID.toString());
-             verifyNoMoreInteractions(tokenBlacklistService);
+            verify(tokenBlacklistService).invalidateUserTokens(TEST_USER_ID.toString());
+            verifyNoMoreInteractions(tokenBlacklistService);
         }
     }
 
@@ -460,15 +469,15 @@ class TokenServiceUTest {
             when(tokenBlacklistService.isJwtBlacklisted(OLD_REFRESH_TOKEN)).thenReturn(true);
 
             assertThatThrownBy(() -> tokenService.refreshToken(OLD_REFRESH_HEADER, refreshUserDetails))
-                .isInstanceOf(AuthenticationException.class)
-                .hasMessageContaining("Token is blacklisted"); // Check specific message
+                    .isInstanceOf(AuthenticationException.class)
+                    .hasMessageContaining("Token is blacklisted"); // Check specific message
 
-             verify(tokenBlacklistService).isJwtBlacklisted(OLD_REFRESH_TOKEN);
-             verifyNoMoreInteractions(tokenBlacklistService);
-             verifyNoInteractions(jwtConfig);
+            verify(tokenBlacklistService).isJwtBlacklisted(OLD_REFRESH_TOKEN);
+            verifyNoMoreInteractions(tokenBlacklistService);
+            verifyNoInteractions(jwtConfig);
         }
 
-         @Test
+        @Test
         @DisplayName("Should throw AuthenticationException if user is invalidated")
         void refreshToken_whenUserInvalidated_shouldThrowAuthenticationException() {
             when(tokenBlacklistService.isJwtBlacklisted(OLD_REFRESH_TOKEN)).thenReturn(false);
@@ -476,13 +485,13 @@ class TokenServiceUTest {
             when(tokenBlacklistService.isUserInvalidated(REFRESH_USER_ID.toString())).thenReturn(true);
 
             assertThatThrownBy(() -> tokenService.refreshToken(OLD_REFRESH_HEADER, refreshUserDetails))
-                .isInstanceOf(AuthenticationException.class)
-                .hasMessageContaining("User session invalidated"); // Check specific message
+                    .isInstanceOf(AuthenticationException.class)
+                    .hasMessageContaining("User session invalidated"); // Check specific message
 
-             verify(tokenBlacklistService).isJwtBlacklisted(OLD_REFRESH_TOKEN);
-             verify(jwtConfig).extractUserId(OLD_REFRESH_TOKEN);
-             verify(tokenBlacklistService).isUserInvalidated(REFRESH_USER_ID.toString());
-             verifyNoMoreInteractions(tokenBlacklistService, jwtConfig);
+            verify(tokenBlacklistService).isJwtBlacklisted(OLD_REFRESH_TOKEN);
+            verify(jwtConfig).extractUserId(OLD_REFRESH_TOKEN);
+            verify(tokenBlacklistService).isUserInvalidated(REFRESH_USER_ID.toString());
+            verifyNoMoreInteractions(tokenBlacklistService, jwtConfig);
         }
 
         @Test
@@ -499,8 +508,8 @@ class TokenServiceUTest {
             doNothing().when(tokenBlacklistService).blacklistJwt(OLD_REFRESH_TOKEN, expiryDate.getTime());
 
             assertThatThrownBy(() -> tokenService.refreshToken(OLD_REFRESH_HEADER, refreshUserDetails))
-                .isInstanceOf(AuthenticationException.class)
-                .hasMessageContaining("User is banned"); // Check specific message
+                    .isInstanceOf(AuthenticationException.class)
+                    .hasMessageContaining("User is banned"); // Check specific message
 
             // Verify the specific interactions that should happen before throwing
             verify(tokenBlacklistService).isJwtBlacklisted(OLD_REFRESH_TOKEN);
@@ -523,12 +532,12 @@ class TokenServiceUTest {
             when(tokenBlacklistService.isUserInvalidated(REFRESH_USER_ID.toString())).thenReturn(false);
 
             assertThatThrownBy(() -> tokenService.refreshToken(OLD_REFRESH_HEADER, differentUserDetails))
-                .isInstanceOf(AuthenticationException.class)
-                .hasMessageContaining("User mismatch"); // Check specific message
+                    .isInstanceOf(AuthenticationException.class)
+                    .hasMessageContaining("User mismatch"); // Check specific message
 
-             verify(tokenBlacklistService).isJwtBlacklisted(OLD_REFRESH_TOKEN);
-             verify(jwtConfig).extractUserId(OLD_REFRESH_TOKEN);
-             verify(tokenBlacklistService).isUserInvalidated(REFRESH_USER_ID.toString());
+            verify(tokenBlacklistService).isJwtBlacklisted(OLD_REFRESH_TOKEN);
+            verify(jwtConfig).extractUserId(OLD_REFRESH_TOKEN);
+            verify(tokenBlacklistService).isUserInvalidated(REFRESH_USER_ID.toString());
         }
 
         @Test
@@ -540,29 +549,30 @@ class TokenServiceUTest {
             when(jwtConfig.extractUserId(OLD_REFRESH_TOKEN)).thenReturn(REFRESH_USER_ID);
             when(tokenBlacklistService.isUserInvalidated(REFRESH_USER_ID.toString())).thenReturn(false);
 
-             assertThatThrownBy(() -> tokenService.refreshToken(OLD_REFRESH_HEADER, nonPrincipalDetails))
-                .isInstanceOf(AuthenticationException.class)
-                .hasMessageContaining("Invalid user principal type"); // Check specific message
+            assertThatThrownBy(() -> tokenService.refreshToken(OLD_REFRESH_HEADER, nonPrincipalDetails))
+                    .isInstanceOf(AuthenticationException.class)
+                    .hasMessageContaining("Invalid user principal type"); // Check specific message
 
-             verify(tokenBlacklistService).isJwtBlacklisted(OLD_REFRESH_TOKEN);
-             verify(jwtConfig).extractUserId(OLD_REFRESH_TOKEN);
-             verify(tokenBlacklistService).isUserInvalidated(REFRESH_USER_ID.toString());
+            verify(tokenBlacklistService).isJwtBlacklisted(OLD_REFRESH_TOKEN);
+            verify(jwtConfig).extractUserId(OLD_REFRESH_TOKEN);
+            verify(tokenBlacklistService).isUserInvalidated(REFRESH_USER_ID.toString());
         }
 
         @Test
         @DisplayName("Should throw AuthenticationException on expired token")
         void refreshToken_withExpiredToken_shouldThrowAuthenticationException() {
             // Arrange: Simulate token expiration during user ID extraction
-            when(tokenBlacklistService.isJwtBlacklisted(OLD_REFRESH_TOKEN)).thenReturn(false); // Assume not blacklisted initially
+            when(tokenBlacklistService.isJwtBlacklisted(OLD_REFRESH_TOKEN)).thenReturn(false); // Assume not blacklisted
+                                                                                               // initially
             ExpiredJwtException expiredException = new ExpiredJwtException(null, null, "expired");
             when(jwtConfig.extractUserId(OLD_REFRESH_TOKEN)).thenThrow(expiredException);
             // No need to mock extractExpiration or blacklistJwt for this specific assertion
 
-             // Act & Assert: Verify the correct exception and cause are thrown
-             assertThatThrownBy(() -> tokenService.refreshToken(OLD_REFRESH_HEADER, refreshUserDetails))
-                .isInstanceOf(AuthenticationException.class)
-                .hasMessageContaining("Token has expired") // Check the service's exception message
-                .hasCause(expiredException); // Ensure the cause is the original ExpiredJwtException
+            // Act & Assert: Verify the correct exception and cause are thrown
+            assertThatThrownBy(() -> tokenService.refreshToken(OLD_REFRESH_HEADER, refreshUserDetails))
+                    .isInstanceOf(AuthenticationException.class)
+                    .hasMessageContaining("Token has expired") // Check the service's exception message
+                    .hasCause(expiredException); // Ensure the cause is the original ExpiredJwtException
 
             // Verification: Verify the initial checks happened before the exception
             verify(tokenBlacklistService).isJwtBlacklisted(OLD_REFRESH_TOKEN);
@@ -570,4 +580,4 @@ class TokenServiceUTest {
             // No further verification needed as the exception path is the focus
         }
     }
-} 
+}

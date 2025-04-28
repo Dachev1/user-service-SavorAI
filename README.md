@@ -1,167 +1,257 @@
-# User Service - SavorAI
+# SavorAI - User Service
 
-> Backend service providing user management and authentication functionalities for the SavorAI platform. 
+## Overview
 
-This service handles user registration, login, profile management, authorization, and potentially other user-related operations within the SavorAI ecosystem. It utilizes Spring Boot 3 with Java 17, leveraging JWT for secure authentication and JPA for data persistence.
-
-## Table of Contents
-
-*   [Features](#features)
-*   [Tech Stack](#tech-stack)
-*   [Prerequisites](#prerequisites)
-*   [Installation](#installation)
-*   [Configuration](#configuration)
-*   [Running the Application](#running-the-application)
-*   [Running Tests](#running-tests)
-*   [API Reference](#api-reference)
-*   [Contributing](#contributing)
-*   [License](#license)
-*   [Contact](#contact)
-*   [Acknowledgements](#acknowledgements)
+The User Service is a foundational microservice in the SavorAI platform, responsible for user authentication, authorization, and user profile management. Built with Spring Boot and Java, this service provides secure and scalable user management capabilities for the entire SavorAI ecosystem.
 
 ## Features
 
-*   **User Management:** Core CRUD operations for users. 
-*   **Secure Authentication:** JWT-based authentication and authorization using Spring Security.
-*   **Data Persistence:** Uses Spring Data JPA with MySQL.
-*   **Caching:** Integrated caching using Spring Cache with Caffeine and Redis support.
-*   **API Documentation:** Self-documented API using SpringDoc (OpenAPI).
-*   **Email Integration:** Capable of sending emails (e.g., for verification, password reset).
-*   **Image/Media Handling:** Integrates with Cloudinary. 
-*   **Environment-based Configuration:** Uses Spring Dotenv for easy configuration management.
+- **User Authentication**: Secure sign-up, sign-in, and token-based authentication
+- **JWT Token Management**: Generation and validation of JSON Web Tokens
+- **User Registration**: Complete user registration flow with email verification
+- **Password Management**: Secure password handling with reset functionality
+- **Profile Management**: User profile creation and updates
+- **Role-Based Authorization**: Support for multiple user roles (User, Admin)
+- **Email Communications**: Transactional emails for account verification and notifications
+- **Security**: Comprehensive security measures with Spring Security
+- **Documentation**: API documentation with Springdoc OpenAPI
 
 ## Tech Stack
 
-*   **Language:** Java 17
-*   **Framework:** Spring Boot 3.4.0
-*   **Core Modules:** Spring Web, Spring Data JPA, Spring Security, Spring Validation, Spring Actuator, Spring Cache, Spring Mail, Spring Data Redis
-*   **Database:** MySQL (Runtime), H2 (Testing)
-*   **Caching:** Caffeine, Redis
-*   **Authentication:** JWT (via `io.jsonwebtoken:jjwt`)
-*   **API Documentation:** SpringDoc OpenAPI (`org.springdoc:springdoc-openapi-starter-webmvc-ui`)
-*   **Build Tool:** Gradle 
-*   **Utilities:** Lombok, Spring Dotenv
-*   **Cloud Services:** Cloudinary
-*   **Testing:** JUnit 5, Mockito (via Spring Boot Starter Test), Spring Security Test, Testcontainers
+- **Framework**: Spring Boot 3.4.0
+- **Language**: Java 17
+- **Database**: MySQL
+- **ORM**: Spring Data JPA
+- **Security**: Spring Security with JWT
+- **API Documentation**: Springdoc OpenAPI
+- **Email**: Spring Mail
+- **Caching**: Spring Cache with Caffeine
+- **Cloud Storage**: Cloudinary for profile images
+- **Build Tool**: Gradle
+- **Testing**: JUnit, Spring Boot Test, Testcontainers
 
-## Prerequisites
+## Architecture
 
-*   **Java Development Kit (JDK):** Version 17 or later.
-*   **Gradle:** Version compatible with the project (Gradle wrapper included - `./gradlew` commands should work).
-*   **MySQL Database:** A running instance accessible by the application. 
-*   **Redis Instance:** A running instance accessible by the application. 
-*   **(Optional) Docker & Docker Compose:** If used for managing dependencies like MySQL/Redis during development/testing.
-*   **(Optional) Cloudinary Account:** API Key, Secret, and Cloud Name if Cloudinary integration is actively used.
+The User Service follows a clean, layered architecture:
 
-## Installation
-
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repository-url> # <-- Make sure to add your repo URL here!
-    cd user-service-SavorAI 
-    ```
-
-2.  **Configure Environment:**
-    *   Create a `.env` file in the project root directory.
-    *   Add necessary environment variables (see [Configuration](#configuration) section below). Key variables include database connection details (`SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`), Redis details (`SPRING_REDIS_HOST`, `SPRING_REDIS_PORT`), JWT secret (`JWT_SECRET_KEY`), Cloudinary URL (`CLOUDINARY_URL`), and mail server details.
-    *   Alternatively, configure these properties in `src/main/resources/application.properties` or `application.yml` (though `.env` is recommended for secrets).
-
-3.  **Build the project:**
-    ```bash
-    ./gradlew build 
-    ```
-    (This will also download dependencies)
-
-## Configuration
-
-The application uses Spring Boot's externalized configuration mechanism, primarily driven by `src/main/resources/application.properties` (or `.yml`) and enhanced by environment variables (via Spring Dotenv, likely reading a `.env` file).
-
-**Key Configuration Properties (Set via `.env` or System Environment Variables):**
-
-*   `SERVER_PORT`: Port the application runs on (default: `8080`).
-*   `SPRING_DATASOURCE_URL`: JDBC URL for the MySQL database.
-*   `SPRING_DATASOURCE_USERNAME`: Database username.
-*   `SPRING_DATASOURCE_PASSWORD`: Database password.
-*   `SPRING_JPA_HIBERNATE_DDL_AUTO`: JPA schema generation strategy (e.g., `update`, `validate`, `none`). Use `none` or `validate` for production.
-*   `SPRING_REDIS_HOST`: Redis server host.
-*   `SPRING_REDIS_PORT`: Redis server port.
-*   `JWT_SECRET_KEY`: Secret key for signing JWT tokens (should be strong and kept secure).
-*   `JWT_EXPIRATION_MS`: JWT token validity duration in milliseconds.
-*   `CLOUDINARY_URL`: Cloudinary connection string (e.g., `cloudinary://API_KEY:API_SECRET@CLOUD_NAME`). 
-*   `SPRING_MAIL_HOST`, `SPRING_MAIL_PORT`, `SPRING_MAIL_USERNAME`, `SPRING_MAIL_PASSWORD`: Mail server configuration.
-*   `SPRING_PROFILES_ACTIVE`: Active Spring profiles (e.g., `dev`, `prod`).
-
-**Example `.env` structure:**
-
-```dotenv
-# .env
-SERVER_PORT=8080
-
-SPRING_DATASOURCE_URL=jdbc:mysql://localhost:3306/savorai_users?useSSL=false&serverTimezone=UTC
-SPRING_DATASOURCE_USERNAME=your_db_user
-SPRING_DATASOURCE_PASSWORD=your_db_password
-SPRING_JPA_HIBERNATE_DDL_AUTO=update # Use 'validate' or 'none' in production
-
-SPRING_REDIS_HOST=localhost
-SPRING_REDIS_PORT=6379
-
-JWT_SECRET_KEY=YourVeryStrongAndLongSecretKeyShouldGoHereChangeThisImmediately
-JWT_EXPIRATION_MS=86400000 # 24 hours
-
-# Optional: Only if using Cloudinary
-# CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>
-
-# Optional: Mail configuration
-# SPRING_MAIL_HOST=smtp.example.com
-# SPRING_MAIL_PORT=587
-# SPRING_MAIL_USERNAME=user@example.com
-# SPRING_MAIL_PASSWORD=password
-# SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH=true
-# SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE=true 
 ```
-*(Please verify these property names against your application's configuration)*
-
-## Running the Application
-
-Once configured, you can run the application using the Spring Boot Gradle plugin:
-
-```bash
-./gradlew bootRun
+dev.idachev.userservice/
+├── config/       # Configuration classes for Spring components
+├── exception/    # Custom exceptions and error handling
+├── model/        # Domain entities and business objects
+├── repository/   # Data access layer with JPA repositories
+├── security/     # Security configuration and JWT handling
+├── service/      # Business logic services
+├── util/         # Utility classes and helper functions
+├── validation/   # Custom validators and validation logic
+├── web/          # REST controllers, DTOs, and request/response mapping
+└── Application.java # Main application class
 ```
 
-The application will start, and you should see log output indicating it's running, typically on port 8080 (or the port specified in the configuration).
+## API Endpoints
 
-## Running Tests
+The service exposes the following main API endpoints:
 
-Execute the unit and integration tests using Gradle:
+- **Authentication**:
+  - `POST /api/auth/register` - Register a new user
+  - `POST /api/auth/login` - Authenticate and get access token
+  - `POST /api/auth/refresh` - Refresh access token
+  - `POST /api/auth/logout` - Invalidate tokens
+
+- **User Management**:
+  - `GET /api/users` - Get users (admin only)
+  - `GET /api/users/{id}` - Get user by ID
+  - `PUT /api/users/{id}` - Update user
+  - `DELETE /api/users/{id}` - Delete user
+
+- **Profile Management**:
+  - `GET /api/profile` - Get current user profile
+  - `PUT /api/profile` - Update profile
+  - `POST /api/profile/image` - Upload profile image
+
+- **Verification**:
+  - `GET /api/verification/verify-email` - Verify email address
+  - `POST /api/verification/resend` - Resend verification email
+  - `POST /api/verification/forgot-password` - Initiate password reset
+  - `POST /api/verification/reset-password` - Complete password reset
+
+- **Contact**:
+  - `POST /api/contact` - Submit contact form
+
+## Security
+
+The service implements a comprehensive security strategy:
+
+- Argon2 password hashing for maximum security
+- JWT-based authentication with refresh tokens
+- Role-based access control
+- Protection against common vulnerabilities (CSRF, XSS, etc.)
+- Rate limiting to prevent brute force attacks
+- Input validation and sanitization
+- HTTPS enforcement in production
+- Secure session management
+
+## Getting Started
+
+### Prerequisites
+
+- JDK 17+
+- MySQL 8.0+
+- Gradle 8.0+
+- SMTP server access (for email functionality)
+- Cloudinary account (for image storage)
+- Redis instance (optional, for token storage)
+
+### Configuration
+
+Create a `.env` file in the project root with the following variables:
+
+```properties
+# Database
+DB_URL=jdbc:mysql://localhost:3306/savorai_users
+DB_USERNAME=root
+DB_PASSWORD=yourpassword
+
+# JWT
+JWT_SECRET=your-very-secure-jwt-secret-key
+JWT_EXPIRATION=86400000
+JWT_REFRESH_EXPIRATION=604800000
+
+# Email
+MAIL_HOST=smtp.example.com
+MAIL_PORT=587
+MAIL_USERNAME=your-email@example.com
+MAIL_PASSWORD=your-email-password
+MAIL_FROM=noreply@savorai.com
+
+# Application
+APP_URL=http://localhost:5173
+API_URL=http://localhost:8081
+
+# Cloudinary
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
+
+# Redis (for token storage)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
+
+### Building and Running
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/user-service-SavorAI.git
+   cd user-service-SavorAI
+   ```
+
+2. Build the application:
+   ```bash
+   ./gradlew build
+   ```
+
+3. Run the application:
+   ```bash
+   ./gradlew bootRun
+   ```
+
+4. Access the OpenAPI documentation at `http://localhost:8081/swagger-ui.html`
+
+## Testing
+
+Run the tests with the following command:
 
 ```bash
 ./gradlew test
 ```
 
-Test results will be generated in the `build/reports/tests/test/` directory.
+The service includes:
+- Unit tests for service and utility classes
+- Integration tests for repositories
+- Controller tests for API endpoints
+- Security tests for authentication flows
 
-## API Reference
+## Deployment
 
-The API is documented using OpenAPI 3. SpringDoc automatically generates the specification.
+The service can be deployed in various environments:
 
-Once the application is running, you can access the Swagger UI documentation in your browser:
+### Docker Deployment
 
-*   **Swagger UI:** [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html) (Replace `8080` if you configured a different port)
-*   **OpenAPI Spec (JSON):** [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+1. Build the Docker image:
+   ```bash
+   ./gradlew bootBuildImage --imageName=savorai/user-service
+   ```
 
-This interactive UI allows you to explore endpoints, view request/response models, and even try out API calls directly.
+2. Run the Docker container:
+   ```bash
+   docker run -p 8081:8081 savorai/user-service
+   ```
+
+### Kubernetes Deployment
+
+1. Create a Kubernetes deployment file (`user-service-deployment.yaml`):
+   ```yaml
+   apiVersion: apps/v1
+   kind: Deployment
+   metadata:
+     name: user-service
+   spec:
+     replicas: 2
+     selector:
+       matchLabels:
+         app: user-service
+     template:
+       metadata:
+         labels:
+           app: user-service
+       spec:
+         containers:
+         - name: user-service
+           image: savorai/user-service:latest
+           ports:
+           - containerPort: 8081
+           env:
+           - name: SPRING_PROFILES_ACTIVE
+             value: "prod"
+   ```
+
+2. Apply the deployment:
+   ```bash
+   kubectl apply -f user-service-deployment.yaml
+   ```
+
+### Production Considerations
+
+- Use environment-specific configuration profiles
+- Set up database replication/clustering for high availability
+- Configure proper logging and monitoring
+- Implement CI/CD pipelines for automated deployment
+- Regular security audits and dependency updates
+- Data backup and disaster recovery plans
+
+## Performance Considerations
+
+- The service implements caching for frequently accessed data
+- Efficient JWT validation with minimal database lookups
+- Database connection pooling
+- Asynchronous processing for non-critical operations (email sending)
+- Redis for token storage and distributed session management
+- Database query optimization and indexing
 
 ## Contributing
 
-Contributions are welcome! 
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature-name`
+3. Commit your changes: `git commit -m 'Add some feature'`
+4. Push to the branch: `git push origin feature/your-feature-name`
+5. Open a pull request
 
-We appreciate bug reports, feature requests, and pull requests. Please follow these general steps:
+## License
 
-1.  Fork the repository.
-2.  Create a new branch (`git checkout -b feature/your-feature-name`).
-3.  Make your changes.
-4.  Ensure tests pass (`./gradlew test`).
-5.  Commit your changes (`git commit -m 'Add some feature'`).
-6.  Push to the branch (`git push origin feature/your-feature-name`).
-7.  Open a Pull Request.
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Related Repositories
+
+- [FE-savorAI](https://github.com/yourusername/FE-savorAI) - Frontend application
+- [recipe-service-SavorAI](https://github.com/yourusername/recipe-service-SavorAI) - Recipe management service 

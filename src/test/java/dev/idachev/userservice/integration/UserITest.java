@@ -65,12 +65,6 @@ class UserITest {
         return signInAndGetToken(username, password);
     }
 
-    // Creates admin user and returns Bearer token
-    private String getAdminAuthToken(String username, String email, String password) throws Exception {
-        createAdminUser(username, email, password);
-        return signInAndGetToken(username, password);
-    }
-
     // Performs sign-in and extracts token
     private String signInAndGetToken(String username, String password) throws Exception {
         SignInRequest signInRequest = new SignInRequest(username, password);
@@ -249,7 +243,7 @@ class UserITest {
     void givenNonAdminUser_whenUpdateUserRole_thenForbidden() throws Exception {
         // Given: Two regular users, one signed in
         User userToUpdate = createDefaultUser("roleuser_other", "roleother@example.com", "otherpass");
-        String regularUserToken = getUserAuthToken("roleuser_nonadmin", "rolenonadmin@example.com", "userpass");
+        String regularUserToken = getUserAuthToken("roleuser_nonadmin", "roleuser_nonadmin@example.com", "userpass");
 
         // When: Regular user attempts to update another user's role
         mockMvc.perform(put("/api/v1/admin/users/{userId}/role", userToUpdate.getId())

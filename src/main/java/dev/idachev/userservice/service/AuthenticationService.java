@@ -204,7 +204,6 @@ public class AuthenticationService {
 
         UUID userId = tokenService.extractUserId(token);
         Date expiry = tokenService.extractExpiration(token);
-        long expiryMillis = (expiry != null) ? expiry.getTime() : 0;
 
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new UserNotFoundException("User not found for token"));
