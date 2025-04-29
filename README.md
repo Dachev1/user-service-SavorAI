@@ -2,7 +2,7 @@
 
 ## Related Repositories
 
-- [FE-savorAI](https://github.com/Dachev1/FE-savorAI) - Frontend application
+- [SavorAI](https://github.com/Dachev1/SavorAI) - Frontend application
 - [recipe-service-SavorAI](https://github.com/Dachev1/recipe-service-SavorAI) - Recipe management service 
 
 ## Overview
